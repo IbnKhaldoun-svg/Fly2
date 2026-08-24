@@ -1,0 +1,52 @@
+const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const places=[
+{type:'city',name:'Bologna',country:'Italia',iata:'BLQ',airport:'Aeroporto Guglielmo Marconi di Bologna'},
+{type:'airport',name:'Aeroporto di Bologna',country:'Italia',iata:'BLQ',city:'Bologna'},
+{type:'city',name:'Milano',country:'Italia',iata:'MIL',airport:'Milano (tutti gli aeroporti)'},
+{type:'airport',name:'Milano Malpensa',country:'Italia',iata:'MXP',city:'Milano'},
+{type:'airport',name:'Milano Bergamo',country:'Italia',iata:'BGY',city:'Milano / Bergamo'},
+{type:'airport',name:'Milano Linate',country:'Italia',iata:'LIN',city:'Milano'},
+{type:'city',name:'Roma',country:'Italia',iata:'ROM',airport:'Roma (tutti gli aeroporti)'},
+{type:'airport',name:'Roma Fiumicino',country:'Italia',iata:'FCO',city:'Roma'},
+{type:'city',name:'Barcellona',country:'Spagna',iata:'BCN',airport:'Aeroporto Josep Tarradellas Barcelona-El Prat'},
+{type:'airport',name:'Barcellona El Prat',country:'Spagna',iata:'BCN',city:'Barcellona'},
+{type:'city',name:'Madrid',country:'Spagna',iata:'MAD',airport:'Adolfo Suárez Madrid-Barajas'},
+{type:'city',name:'Agadir',country:'Marocco',iata:'AGA',airport:'Aeroporto di Agadir-Al Massira'},
+{type:'city',name:'Marrakech',country:'Marocco',iata:'RAK',airport:'Aeroporto di Marrakech-Menara'},
+{type:'city',name:'Casablanca',country:'Marocco',iata:'CMN',airport:'Aeroporto Mohammed V'},
+{type:'country',name:'Marocco',country:'Marocco'},
+{type:'country',name:'Spagna',country:'Spagna'},
+{type:'country',name:'Italia',country:'Italia'},
+{type:'anywhere',name:'Ovunque',country:'Destinazione da scegliere'}
+];
+const state={trip:'roundtrip',mode:'precise',origin:null,destination:null,passengers:{adults:1,children:0,infantsSeat:0,infantsLap:0}};
+const typeLabels={city:'Città',airport:'Aeroporto',country:'Paese',anywhere:'Ovunque'};const typeIcons={city:'●',airport:'✈',country:'◒',anywhere:'◎'};
+function init(){setDefaultDates();bind();renderPassengerRows();}
+function bind(){
+$$('.segment').forEach(b=>b.addEventListener('click',()=>setTrip(b.dataset.trip)));$$('.chip').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+bindLocation('origin','originSuggestions');bindLocation('destination','destinationSuggestions');
+$('#swap').addEventListener('click',()=>{const a=state.origin,b=state.destination;state.origin=b;state.destination=a;$('#origin').value=b?.name||'';$('#destination').value=a?.name||'';});
+$$('[data-clear]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.clear;$('#'+id).value='';state[id]=null;$('#'+id+'Suggestions')?.classList.add('hidden');}));
+$('#advancedToggle').addEventListener('click',()=>{const p=$('#advancedPanel');const hidden=p.classList.toggle('hidden');$('#advancedToggle').setAttribute('aria-expanded',String(!hidden));$('#advancedToggle span').textContent=hidden?'＋':'−';});
+$('#passengerButton').addEventListener('click',openPassengers);$('#closePassengers').addEventListener('click',closePassengers);$('#passengerDone').addEventListener('click',closePassengers);$('#sheetBackdrop').addEventListener('click',closePassengers);
+$('#searchButton').addEventListener('click',runSearch);$('#openHelp').addEventListener('click',()=>$('#helpModal').classList.remove('hidden'));$$('[data-close-modal]').forEach(b=>b.addEventListener('click',()=>$('#helpModal').classList.add('hidden')));$('#helpModal').addEventListener('click',e=>{if(e.target.id==='helpModal')e.currentTarget.classList.add('hidden')});
+$('#departureDate').addEventListener('change',()=>{if($('#returnDate').value<$('#departureDate').value)$('#returnDate').value=$('#departureDate').value;$('#returnDate').min=$('#departureDate').value;});
+}
+function setDefaultDates(){const d=new Date();d.setDate(d.getDate()+7);$('#departureDate').value=dateInput(d);$('#departureDate').min=dateInput(new Date());const r=new Date(d);r.setDate(r.getDate()+3);$('#returnDate').value=dateInput(r);$('#returnDate').min=dateInput(d);}
+function setTrip(v){state.trip=v;$$('.segment').forEach(b=>b.classList.toggle('active',b.dataset.trip===v));$$('.return-control').forEach(el=>el.classList.toggle('hidden',v==='oneway'));}
+function setMode(v){state.mode=v;$$('.chip').forEach(b=>b.classList.toggle('active',b.dataset.mode===v));['precise','cheapest','weekend'].forEach(m=>$('#'+m+'Panel').classList.toggle('hidden',m!==v));}
+function bindLocation(id,sid){const input=$('#'+id),box=$('#'+sid);input.addEventListener('input',()=>{state[id]=null;const q=norm(input.value);if(!q){box.classList.add('hidden');return;}const matches=places.filter(p=>norm([p.name,p.country,p.iata,p.airport,p.city].filter(Boolean).join(' ')).includes(q)).slice(0,8);box.innerHTML=matches.length?matches.map((p,i)=>`<button class="suggestion" type="button" data-i="${i}"><span class="type-icon">${typeIcons[p.type]}</span><span><strong>${esc(p.name)}${p.iata?` · ${esc(p.iata)}`:''}</strong><small>${typeLabels[p.type]}${p.country?` · ${esc(p.country)}`:''}${p.airport&&p.type==='city'?` · ${esc(p.airport)}`:''}</small></span></button>`).join(''):'<div class="suggestion"><span><strong>Nessun suggerimento locale</strong><small>Il dataset globale verrà aggiunto nel prossimo passaggio.</small></span></div>';box.classList.remove('hidden');$$('.suggestion[data-i]',box).forEach(btn=>btn.addEventListener('click',()=>{const p=matches[Number(btn.dataset.i)];state[id]=p;input.value=p.name;box.classList.add('hidden');}));});input.addEventListener('focus',()=>{if(input.value)input.dispatchEvent(new Event('input'));});}
+function openPassengers(){$('#sheetBackdrop').classList.remove('hidden');$('#passengerSheet').classList.remove('hidden');}
+function closePassengers(){$('#sheetBackdrop').classList.add('hidden');$('#passengerSheet').classList.add('hidden');updatePassengerSummary();}
+function renderPassengerRows(){const rows=[['adults','Adulti','12+ anni'],['children','Bambini','2–11 anni'],['infantsSeat','Neonati con posto','Meno di 2 anni'],['infantsLap','Neonati in braccio','Meno di 2 anni']];$('#passengerRows').innerHTML=rows.map(([k,l,s])=>`<div class="counter-row"><div><strong>${l}</strong><small>${s}</small></div><div class="counter"><button type="button" data-k="${k}" data-d="-1">−</button><strong id="count-${k}">${state.passengers[k]}</strong><button type="button" data-k="${k}" data-d="1">+</button></div></div>`).join('');$$('.counter button').forEach(b=>b.addEventListener('click',()=>{const k=b.dataset.k,d=Number(b.dataset.d),min=k==='adults'?1:0;state.passengers[k]=Math.max(min,state.passengers[k]+d);$('#count-'+k).textContent=state.passengers[k];}));}
+function updatePassengerSummary(){const p=state.passengers,total=p.adults+p.children+p.infantsSeat+p.infantsLap;$('#passengerSummary').textContent=total===1?'1 adulto':`${total} passeggeri`;}
+function runSearch(){
+const origin=state.origin||findTyped($('#origin').value);const destination=state.destination||findTyped($('#destination').value);if(!origin||!destination){showResult('Manca una località','Scegli partenza e destinazione dai suggerimenti per evitare ambiguità.');return;}if(origin.name===destination.name){showResult('Controlla la rotta','Partenza e destinazione devono essere diverse.');return;}state.origin=origin;state.destination=destination;
+const detail=[];if(state.mode==='precise'){detail.push(`Andata: ${prettyDate($('#departureDate').value)}`);if(state.trip==='roundtrip')detail.push(`Ritorno: ${prettyDate($('#returnDate').value)}`);}if(state.mode==='cheapest')detail.push(`${$('#nights').value} notti · entro ${$('#horizon').selectedOptions[0].textContent}`);if(state.mode==='weekend')detail.push(`${$('#weekendOut').value} dopo le ${$('#weekendOutTime').value}${state.trip==='roundtrip'?` · ritorno ${$('#weekendBack').value.toLowerCase()} verso le ${$('#weekendBackTime').value}`:''}`);detail.push($('#stops').selectedOptions[0].textContent);detail.push($('#passengerSummary').textContent);
+const countryNote=destination.type==='country'?`Prima dei voli, Fly2 dovrà individuare le città realmente raggiungibili in ${esc(destination.name)} nelle condizioni selezionate.`:'';const anywhereNote=destination.type==='anywhere'?`Con “Ovunque”, Fly2 dovrà confrontare le destinazioni realmente disponibili senza inventarne nessuna.`:'';
+$('#resultTitle').textContent=`${origin.name} → ${destination.name}`;$('#resultContent').innerHTML=`<article class="result-card"><div class="summary-route"><div><strong>${esc(origin.name)} → ${esc(destination.name)}</strong><span>${state.trip==='roundtrip'?'Andata e ritorno':'Solo andata'} · ${labelMode(state.mode)}</span></div><span>${origin.iata||''}${origin.iata&&destination.iata?' → ':''}${destination.iata||''}</span></div><div class="selection-list">${detail.map(x=>`<span>${esc(x)}</span>`).join('')}</div>${countryNote||anywhereNote?`<div class="notice">${countryNote||anywhereNote}</div>`:''}<div class="notice"><strong>Nessun prezzo mostrato.</strong><br>La tua interfaccia è pronta, ma non abbiamo ancora collegato una sorgente gratuita affidabile per prezzi e disponibilità reali. Finché non lo facciamo, Fly2 non simula voli.</div></article>`;$('#resultSection').classList.remove('hidden');$('#resultSection').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function showResult(title,msg){$('#resultTitle').textContent=title;$('#resultContent').innerHTML=`<article class="result-card"><div class="notice">${esc(msg)}</div></article>`;$('#resultSection').classList.remove('hidden');$('#resultSection').scrollIntoView({behavior:'smooth',block:'start'});}
+function findTyped(v){const q=norm(v);return places.find(p=>norm(p.name)===q||norm(p.iata||'')===q)||null;}function labelMode(m){return m==='precise'?'Date precise':m==='cheapest'?'Periodo più economico':'Weekend';}
+function dateInput(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`;}function prettyDate(v){if(!v)return 'non scelta';return new Intl.DateTimeFormat('it-IT',{day:'numeric',month:'short',year:'numeric'}).format(new Date(v+'T12:00:00'));}function norm(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();}function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+init();
