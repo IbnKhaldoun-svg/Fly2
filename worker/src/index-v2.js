@@ -706,7 +706,7 @@ function normalizeRyanairItinerary(item, passengers) {
     outbound,
     inbound,
     fly2Itinerary: {
-      source: 'Ryanair diretto',
+      source: 'Ryanair',
       price: totalPrice,
       priceFormatted: new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(totalPrice),
       totalDurationSeconds,
