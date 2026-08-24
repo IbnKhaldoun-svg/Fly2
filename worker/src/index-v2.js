@@ -33,7 +33,7 @@ export default {
       return searchFlights({ origin: 'Bologna', destination: 'Barcelona', departureDate: isoDate(departure), returnDate: isoDate(back), adults: 1, maxStopovers: 1 }, cors);
     }
 
-    if (url.pathname === '/search' && request.method === 'POST') {
+    if ((url.pathname === '/search' || url.pathname === '/country-pair-search') && request.method === 'POST') {
       try {
         enforceAllowedOrigin(request);
         const input = await request.json();
@@ -98,7 +98,7 @@ export default {
       }
     }
 
-    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /ryanair-country', 'POST /ryanair-compare'] }, 404, cors);
+    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /country-pair-search', 'POST /ryanair-country', 'POST /ryanair-compare'] }, 404, cors);
   }
 };
 
