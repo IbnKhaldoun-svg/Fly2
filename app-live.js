@@ -268,7 +268,34 @@
     const sourceText = hasDirect
       ? 'Risultati combinati da Kiwi.com e fonti dirette verificate.'
       : 'Prezzi e disponibilità ricevuti da Kiwi.com al momento della ricerca.';
-    content.innerHTML = `<div class="live-results-meta"><strong>${items.length} itinerari</strong><span>${sourceText}</span></div>` + items.map((item, index) => renderItinerary(item, index)).join('');
+
+    const cheapest = items.reduce((best, item) => {
+      const price = effectivePrice(item);
+      if (!Number.isFinite(price)) return best;
+      return !best || price < best.price ? { item, price } : best;
+    }, null);
+
+    const cheapestSource = cheapest
+      ? (window.fly2Pricing?.source?.(cheapest.item) || cheapest.item?.source || 'Kiwi')
+      : '';
+    const cheapestPrice = cheapest
+      ? new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cheapest.price)
+      : '—';
+
+    const minimumCard = cheapest ? `
+      <div class="minimum-price-card" aria-label="Prezzo minimo trovato">
+        <span class="minimum-price-label">Prezzo minimo trovato</span>
+        <strong class="minimum-price-value">${esc(cheapestPrice)}</strong>
+        <span class="minimum-price-source">${esc(cheapestSource)} · migliore tra ${items.length} itinerari</span>
+      </div>` : '';
+
+    content.innerHTML =
+      `<div class="live-results-meta">
+        <div class="live-results-count"><strong>${items.length} itinerari</strong><span>${sourceText}</span></div>
+        ${minimumCard}
+      </div>` +
+      items.map((item, index) => renderItinerary(item, index)).join('');
+
     $('#resultSection').classList.remove('hidden');
     $('#resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
