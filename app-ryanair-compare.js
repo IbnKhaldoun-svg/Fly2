@@ -73,14 +73,53 @@
   }, true);
 
   async function compareIfUseful(items, request) {
-    if (!request || !isExactSearch(request)) return;
-    const ryanairItems = items.filter(allRyanair);
-    if (!ryanairItems.length) return;
+    if (!request || !Array.isArray(items) || !items.length) return;
 
-    const sample = ryanairItems[0];
+    const sample = items[0];
     const firstOut = sample.outbound?.segments?.[0];
     const lastOut = sample.outbound?.segments?.at(-1);
     if (!firstOut?.from || !lastOut?.to) return;
+
+    if (isCheapestSearch(request)) {
+      const payload = {
+        searchMode: 'cheapest',
+        originIata: firstOut.from,
+        destinationIata: lastOut.to,
+        departureDate: request.departureDate,
+        searchHorizonMonths: request.searchHorizonMonths || 3,
+        stayNights: request.stayNights || request.nightsFrom || 3,
+        adults: request.adults || 1,
+        children: request.children || 0,
+        infants: request.infants || 0,
+        maxStopovers: request.maxStopovers ?? 1,
+        maxLayoverHours: request.maxLayoverHours ?? null,
+        excludeStopoverCountries: request.excludeStopoverCountries || []
+      };
+
+      const response = await nativeFetch(COMPARE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) return;
+
+      const external = data.itineraries
+        .map(item => item?.fly2Itinerary)
+        .filter(item => item && Number.isFinite(Number(item.price)));
+
+      if (!external.length) return;
+
+      latestKiwiItems = [...latestKiwiItems, ...external];
+      window.fly2LiveResultsApi?.mergeExternalResults?.(external);
+      queueRefresh();
+      return;
+    }
+
+    if (!isExactSearch(request)) return;
+
+    const ryanairItems = items.filter(allRyanair);
+    if (!ryanairItems.length) return;
 
     const payload = {
       originIata: firstOut.from,
@@ -129,6 +168,11 @@
     latestMatches = matched;
     queueRefresh();
     window.setTimeout(() => window.fly2LiveResultsApi?.rerender?.(), 0);
+  }
+
+  function isCheapestSearch(request) {
+    return request?.searchMode === 'cheapest' ||
+      (request?.departureDateTo && request?.nightsFrom && request?.nightsTo);
   }
 
   function isExactSearch(request) {
@@ -330,10 +374,7 @@
       priceArea.appendChild(box);
 
       const kiwiPriceNode = $('.flight-price', card);
-      if (kiwiPriceNode && !kiwiPriceNode.dataset.sourceLabelled) {
-        kiwiPriceNode.dataset.sourceLabelled = 'true';
-        kiwiPriceNode.insertAdjacentHTML('beforebegin', '<span class="kiwi-price-label">Kiwi</span>');
-      }
+      if (kiwiPriceNode) kiwiPriceNode.dataset.sourceLabelled = 'true';
     }
 
     const foot = $('.flight-foot', card);
