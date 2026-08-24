@@ -1,5 +1,6 @@
 (() => {
   const API_URL = 'https://fly2-api.fly2-search.workers.dev/search';
+  const AIRPORT_META_API = 'https://fly2-api.fly2-search.workers.dev/airports';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -36,6 +37,9 @@
   let preferredCodes = [];
   const bookingStore = new Map();
   const bookingModal = createUnifiedBookingModal();
+  const layoverStore = new Map();
+  const airportMetaCache = new Map();
+  const layoverModal = createLayoverModal();
 
   const button = $('#searchButton');
   if (!button) return;
@@ -44,10 +48,19 @@
 
   document.addEventListener('click', event => {
     const bookingButton = event.target.closest?.('.unified-booking-button[data-booking-key]');
-    if (!bookingButton) return;
-    event.preventDefault();
-    const item = bookingStore.get(bookingButton.dataset.bookingKey);
-    if (item) openUnifiedBookingModal(item);
+    if (bookingButton) {
+      event.preventDefault();
+      const item = bookingStore.get(bookingButton.dataset.bookingKey);
+      if (item) openUnifiedBookingModal(item);
+      return;
+    }
+
+    const layoverButton = event.target.closest?.('.long-layover-trigger[data-layover-key]');
+    if (layoverButton) {
+      event.preventDefault();
+      const layover = layoverStore.get(layoverButton.dataset.layoverKey);
+      if (layover) openLayoverModal(layover);
+    }
   }, true);
 
   async function handleSearch(event) {
@@ -401,34 +414,32 @@
       const minutes = layoverMinutes(segment?.arrivalTime, next?.departureTime);
       if (!Number.isFinite(minutes) || minutes < 360) return '';
 
-      const city = segment?.toCity || next?.fromCity || segment?.to || 'città dello scalo';
-      const code = segment?.to || next?.from || '';
-      const airportName = segment?.toName || next?.fromName || '';
-      const airportQuery = airportName
-        ? `${airportName} ${code}`
-        : `${city} ${code} airport`;
-      const centerQuery = `${city} city center`;
+      const code = String(segment?.to || next?.from || '').trim().toUpperCase();
+      if (!code) return '';
 
-      const directionsUrl = googleMapsDirections(airportQuery, centerQuery);
-      const thingsUrl = googleMapsSearch(`${city} attractions things to do`);
-      const foodUrl = googleMapsSearch(`${city} restaurants city center`);
+      const key = `${code}|${String(segment?.arrivalTime || '')}|${String(next?.departureTime || '')}`;
+      layoverStore.set(key, {
+        code,
+        minutes,
+        arrivalTime: segment?.arrivalTime || '',
+        departureTime: next?.departureTime || '',
+        fallbackCity: segment?.toCity || next?.fromCity || '',
+        fallbackAirport: segment?.toName || next?.fromName || '',
+        fallbackCountry: segment?.toCountry || next?.fromCountry || ''
+      });
+
+      const label = segment?.toCity && norm(segment.toCity) !== norm(code)
+        ? segment.toCity
+        : code;
 
       return `
-        <aside class="long-layover-card">
-          <div class="long-layover-head">
-            <div>
-              <span class="long-layover-kicker">Scalo lungo</span>
-              <strong>${esc(city)}${code ? ` (${esc(code)})` : ''} · ${esc(minutesToHuman(minutes))}</strong>
-            </div>
-            <span class="long-layover-window">${esc(shortTime(segment?.arrivalTime))} → ${esc(shortTime(next?.departureTime))}</span>
+        <div class="long-layover-compact">
+          <div>
+            <span>Scalo lungo</span>
+            <strong>${esc(label)}${label !== code ? ` (${esc(code)})` : ''} · ${esc(minutesToHuman(minutes))}</strong>
           </div>
-          <p>Hai abbastanza tempo per valutare un'uscita dall'aeroporto. Prima di uscire verifica requisiti di ingresso/transito e considera il tempo necessario per rientrare, rifare i controlli e raggiungere il gate.</p>
-          <div class="long-layover-actions">
-            <a href="${escAttr(directionsUrl)}" target="_blank" rel="noopener noreferrer">Come raggiungere il centro ↗</a>
-            <a href="${escAttr(thingsUrl)}" target="_blank" rel="noopener noreferrer">Cosa vedere e fare ↗</a>
-            <a href="${escAttr(foodUrl)}" target="_blank" rel="noopener noreferrer">Dove mangiare ↗</a>
-          </div>
-        </aside>`;
+          <button type="button" class="long-layover-trigger" data-layover-key="${escAttr(key)}">Esplora lo scalo ↗</button>
+        </div>`;
     }).join('');
   }
 
@@ -446,6 +457,139 @@
     return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
   }
 
+  function createLayoverModal() {
+    const modal = document.createElement('div');
+    modal.className = 'layover-modal hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="layover-backdrop" data-layover-close></div>
+      <section class="layover-dialog" role="dialog" aria-modal="true" aria-labelledby="layoverTitle">
+        <div class="layover-dialog-head">
+          <div>
+            <span class="layover-kicker">Scalo lungo</span>
+            <h2 id="layoverTitle">Esplora lo scalo</h2>
+          </div>
+          <button type="button" class="layover-close" data-layover-close aria-label="Chiudi">×</button>
+        </div>
+        <div class="layover-modal-content"></div>
+      </section>`;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', event => {
+      if (event.target.closest('[data-layover-close]')) closeLayoverModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeLayoverModal();
+    });
+    return modal;
+  }
+
+  async function openLayoverModal(layover) {
+    const content = $('.layover-modal-content', layoverModal);
+    if (!content) return;
+
+    layoverModal.classList.remove('hidden');
+    layoverModal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('layover-modal-open');
+    content.innerHTML = '<div class="layover-loading">Recupero città e aeroporto dello scalo…</div>';
+
+    const meta = await getAirportMeta(layover.code, layover);
+    renderLayoverModal(content, layover, meta);
+    $('.layover-close', layoverModal)?.focus();
+  }
+
+  function closeLayoverModal() {
+    layoverModal.classList.add('hidden');
+    layoverModal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('layover-modal-open');
+  }
+
+  async function getAirportMeta(code, fallback) {
+    if (airportMetaCache.has(code)) return airportMetaCache.get(code);
+
+    try {
+      const response = await fetch(`${AIRPORT_META_API}?codes=${encodeURIComponent(code)}`);
+      const data = await response.json().catch(() => null);
+      const airport = response.ok && data?.ok && Array.isArray(data.airports)
+        ? data.airports.find(item => String(item?.iataCode || '').toUpperCase() === code)
+        : null;
+      if (airport) {
+        airportMetaCache.set(code, airport);
+        return airport;
+      }
+    } catch {}
+
+    const fallbackMeta = {
+      iataCode: code,
+      name: fallback?.fallbackAirport || `Aeroporto ${code}`,
+      city: fallback?.fallbackCity || '',
+      countryCode: shortCountry(fallback?.fallbackCountry || '')
+    };
+    airportMetaCache.set(code, fallbackMeta);
+    return fallbackMeta;
+  }
+
+  function renderLayoverModal(content, layover, airport) {
+    const code = airport?.iataCode || layover.code;
+    const city = airport?.city && norm(airport.city) !== norm(code)
+      ? airport.city
+      : (layover.fallbackCity && norm(layover.fallbackCity) !== norm(code) ? layover.fallbackCity : '');
+    const airportName = airport?.name || layover.fallbackAirport || `Aeroporto ${code}`;
+    const countryCode = String(airport?.countryCode || shortCountry(layover.fallbackCountry || '') || '').toUpperCase();
+    const countryName = displayCountry(countryCode);
+
+    const locationSuffix = [city, countryName].filter(Boolean).join(', ');
+    const airportQuery = [airportName, `(${code})`, locationSuffix].filter(Boolean).join(' ');
+    const centerQuery = city
+      ? `Centro di ${city}${countryName ? `, ${countryName}` : ''}`
+      : `Centro città vicino a ${airportName} ${code}`;
+
+    const directionsUrl = googleMapsDirections(airportQuery, centerQuery);
+    const thingsUrl = googleMapsSearch(
+      city
+        ? `attrazioni turistiche e cose da vedere a ${city}${countryName ? `, ${countryName}` : ''}`
+        : `attrazioni turistiche vicino a ${airportName} ${code}`
+    );
+    const foodCenterUrl = googleMapsSearch(
+      city
+        ? `ristoranti nel centro di ${city}${countryName ? `, ${countryName}` : ''}`
+        : `ristoranti vicino a ${airportName} ${code}`
+    );
+    const foodAirportUrl = googleMapsSearch(
+      `ristoranti vicino a ${airportName} ${code}${locationSuffix ? `, ${locationSuffix}` : ''}`
+    );
+
+    content.innerHTML = `
+      <div class="layover-place">
+        <span>${esc(minutesToHuman(layover.minutes))} di scalo · ${esc(shortTime(layover.arrivalTime))} → ${esc(shortTime(layover.departureTime))}</span>
+        <h3>${esc(city || code)}${city ? ` (${esc(code)})` : ''}</h3>
+        <p>${esc(airportName)}${countryName ? ` · ${esc(countryName)}` : ''}</p>
+      </div>
+
+      <div class="layover-safety">
+        Prima di uscire verifica requisiti di ingresso/transito e conserva margine sufficiente per rientrare in aeroporto, rifare i controlli e raggiungere il gate.
+      </div>
+
+      <div class="layover-guide-grid">
+        <a href="${escAttr(directionsUrl)}" target="_blank" rel="noopener noreferrer">
+          <strong>Raggiungi il centro</strong>
+          <span>${esc(airportName)} → ${esc(city ? `centro di ${city}` : 'centro città')}</span>
+        </a>
+        <a href="${escAttr(thingsUrl)}" target="_blank" rel="noopener noreferrer">
+          <strong>Cosa vedere e fare</strong>
+          <span>${esc(city ? `Attrazioni a ${city}` : 'Attrazioni vicino all’aeroporto')}</span>
+        </a>
+        <a href="${escAttr(foodCenterUrl)}" target="_blank" rel="noopener noreferrer">
+          <strong>Mangiare in città</strong>
+          <span>${esc(city ? `Ristoranti nel centro di ${city}` : 'Ristoranti in zona')}</span>
+        </a>
+        <a href="${escAttr(foodAirportUrl)}" target="_blank" rel="noopener noreferrer">
+          <strong>Mangiare vicino all’aeroporto</strong>
+          <span>${esc(airportName)}</span>
+        </a>
+      </div>`;
+  }
+
   function googleMapsDirections(origin, destination) {
     const params = new URLSearchParams({
       api: '1',
@@ -459,6 +603,15 @@
   function googleMapsSearch(query) {
     const params = new URLSearchParams({ api: '1', query });
     return `https://www.google.com/maps/search/?${params.toString()}`;
+  }
+
+  function displayCountry(code) {
+    if (!code) return '';
+    try {
+      return new Intl.DisplayNames('it-IT', { type: 'region' }).of(code) || code;
+    } catch {
+      return code;
+    }
   }
 
   function formatLegRoute(leg) {
