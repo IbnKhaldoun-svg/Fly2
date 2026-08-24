@@ -67,11 +67,18 @@
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) return;
 
-    latestMatches = new Map(
+    const directByRouteTime = new Map(
       data.itineraries
         .filter(item => item?.signature && Number.isFinite(Number(item.totalPrice)))
         .map(item => [item.signature, item])
     );
+
+    const matched = new Map();
+    ryanairItems.forEach(kiwiItem => {
+      const direct = directByRouteTime.get(itineraryRouteTimeSignature(kiwiItem));
+      if (direct) matched.set(itinerarySignature(kiwiItem), direct);
+    });
+    latestMatches = matched;
     queueRefresh();
   }
 
@@ -101,6 +108,24 @@
 
   function normalizeFlight(value) {
     return String(value || '').replace(/\s+/g, '').toUpperCase();
+  }
+
+  function itineraryRouteTimeSignature(item) {
+    return [...(item.outbound?.segments || []), ...(item.inbound?.segments || [])]
+      .map(segment => {
+        const from = String(segment?.from || '').trim().toUpperCase();
+        const to = String(segment?.to || '').trim().toUpperCase();
+        const departure = wallClockMinute(segment?.departureTime);
+        return from && to && departure ? `${from}-${to}@${departure}` : '';
+      })
+      .filter(Boolean)
+      .join('|');
+  }
+
+  function wallClockMinute(value) {
+    const text = String(value || '').trim();
+    const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    return match ? `${match[1]}T${match[2]}` : text.slice(0, 16);
   }
 
   function cardSignature(card) {
