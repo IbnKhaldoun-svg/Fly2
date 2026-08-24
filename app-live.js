@@ -547,23 +547,29 @@
     const directionsUrl = googleMapsDirections(airportQuery, centerQuery);
     const thingsUrl = googleMapsSearch(
       city
-        ? `attrazioni turistiche e cose da vedere a ${city}${countryName ? `, ${countryName}` : ''}`
-        : `attrazioni turistiche vicino a ${airportName} ${code}`
+        ? `attrazioni turistiche a ${city}${countryName ? `, ${countryName}` : ''}`
+        : `attrazioni turistiche vicino a ${airportName}, ${code}`
     );
     const foodCenterUrl = googleMapsSearch(
       city
-        ? `ristoranti nel centro di ${city}${countryName ? `, ${countryName}` : ''}`
-        : `ristoranti vicino a ${airportName} ${code}`
+        ? `ristoranti a ${city}${countryName ? `, ${countryName}` : ''}`
+        : `ristoranti in città vicino a ${airportName}`
     );
     const foodAirportUrl = googleMapsSearch(
-      `ristoranti vicino a ${airportName} ${code}${locationSuffix ? `, ${locationSuffix}` : ''}`
+      `ristoranti vicino a ${airportName}${city ? `, ${city}` : ''}${countryName ? `, ${countryName}` : ''}`
     );
+
+    const recommendedDeparture = addWallClockHours(layover.arrivalTime, 1);
+    const recommendedText = recommendedDeparture
+      ? `${recommendedDeparture.date} alle ${recommendedDeparture.time}`
+      : '';
 
     content.innerHTML = `
       <div class="layover-place">
         <span>${esc(minutesToHuman(layover.minutes))} di scalo · ${esc(shortTime(layover.arrivalTime))} → ${esc(shortTime(layover.departureTime))}</span>
         <h3>${esc(city || code)}${city ? ` (${esc(code)})` : ''}</h3>
         <p>${esc(airportName)}${countryName ? ` · ${esc(countryName)}` : ''}</p>
+        ${recommendedText ? `<div class="layover-recommended-time"><strong>Partenza consigliata verso il centro:</strong> ${esc(recommendedText)} <span>(1h dopo l'arrivo del volo)</span></div>` : ''}
       </div>
 
       <div class="layover-safety">
@@ -581,13 +587,40 @@
         </a>
         <a href="${escAttr(foodCenterUrl)}" target="_blank" rel="noopener noreferrer">
           <strong>Mangiare in città</strong>
-          <span>${esc(city ? `Ristoranti nel centro di ${city}` : 'Ristoranti in zona')}</span>
+          <span>${esc(city ? `Ristoranti a ${city}` : 'Ristoranti in città')}</span>
         </a>
         <a href="${escAttr(foodAirportUrl)}" target="_blank" rel="noopener noreferrer">
           <strong>Mangiare vicino all’aeroporto</strong>
-          <span>${esc(airportName)}</span>
+          <span>${esc(airportName)}${city ? ` · ${esc(city)}` : ''}</span>
         </a>
       </div>`;
+  }
+
+  function addWallClockHours(value, hours) {
+    const text = String(value || '');
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!match) return null;
+
+    const date = new Date(Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5])
+    ));
+    date.setUTCHours(date.getUTCHours() + Number(hours || 0));
+
+    const yyyy = date.getUTCFullYear();
+    const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(date.getUTCDate()).padStart(2, '0');
+    const hh = String(date.getUTCHours()).padStart(2, '0');
+    const min = String(date.getUTCMinutes()).padStart(2, '0');
+
+    return {
+      iso: `${yyyy}-${mm}-${dd}T${hh}:${min}`,
+      date: `${dd}/${mm}/${yyyy}`,
+      time: `${hh}:${min}`
+    };
   }
 
   function googleMapsDirections(origin, destination) {
