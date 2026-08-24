@@ -1,7 +1,7 @@
 const KIWI_MCP_URL = 'https://mcp.kiwi.com';
 const RYANAIR_FINDER_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/search';
 const RYANAIR_AIRPORTS_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/airports';
-const OURAIRPORTS_COUNTRY_BASE = 'https://ourairports.com/countries';
+const WFP_AIRPORTS_QUERY = 'https://gis.wfp.org/arcgis/rest/services/GLOBAL/GlobalAirports/FeatureServer/0/query';
 const ALLOWED_ORIGINS = new Set([
   'https://ibnkhaldoun-svg.github.io',
   'http://localhost:3000',
@@ -119,54 +119,80 @@ export default {
   }
 };
 
-async function getCommercialCountryAirports(countryCode, countryName = '') {
-  const csvUrl = `${OURAIRPORTS_COUNTRY_BASE}/${encodeURIComponent(countryCode)}/airports.csv`;
+const ISO2_TO_ISO3 = {
+  AL:'ALB', AT:'AUT', BE:'BEL', BG:'BGR', CY:'CYP', HR:'HRV', DK:'DNK',
+  EG:'EGY', AE:'ARE', FI:'FIN', FR:'FRA', DE:'DEU', GR:'GRC', IE:'IRL',
+  IS:'ISL', IT:'ITA', MA:'MAR', MT:'MLT', NO:'NOR', NL:'NLD', PL:'POL',
+  PT:'PRT', QA:'QAT', GB:'GBR', CZ:'CZE', RO:'ROU', RS:'SRB', ES:'ESP',
+  SE:'SWE', CH:'CHE', TN:'TUN', TR:'TUR', HU:'HUN'
+};
 
-  const [oaResponse, ryanairResponse] = await Promise.all([
-    fetch(csvUrl, { headers: { 'Accept': 'text/csv,*/*' } }),
+async function getCommercialCountryAirports(countryCode, countryName = '') {
+  const iso3 = ISO2_TO_ISO3[countryCode];
+  if (!iso3) throw new Error('Paese non ancora supportato dalla fonte aeroportuale neutrale.');
+
+  const queryUrl = new URL(WFP_AIRPORTS_QUERY);
+  queryUrl.searchParams.set('where', `iso3='${iso3}' AND iata IS NOT NULL AND iata<>''`);
+  queryUrl.searchParams.set('outFields', 'nameshort,namelong,city,iata,icao,apttype,aptclass,authority,status,iso3,country,latitude,longitude');
+  queryUrl.searchParams.set('returnGeometry', 'false');
+  queryUrl.searchParams.set('resultRecordCount', '2000');
+  queryUrl.searchParams.set('f', 'json');
+
+  const [wfpResponse, ryanairCodes] = await Promise.all([
+    fetch(queryUrl.toString(), { headers: { 'Accept': 'application/json' } }),
     fetchRyanairCountryAirportCodes(countryName || countryCode)
   ]);
 
-  if (!oaResponse.ok) {
-    throw new Error(`Elenco aeroporti commerciali non disponibile (HTTP ${oaResponse.status}).`);
+  const data = await wfpResponse.json().catch(() => null);
+  if (!wfpResponse.ok || !data || !Array.isArray(data.features)) {
+    throw new Error(`Elenco aeroporti neutrale non disponibile (HTTP ${wfpResponse.status}).`);
   }
 
-  const csvText = await oaResponse.text();
-  const rows = parseCsvObjects(csvText);
-  const ryanairCodes = ryanairResponse;
+  const byIata = new Map();
 
-  const airports = rows
-    .map(row => ({
-      iataCode: String(row.iata_code || '').trim().toUpperCase(),
-      name: String(row.name || '').trim(),
-      city: String(row.municipality || '').trim(),
-      countryCode: String(row.iso_country || countryCode).trim().toUpperCase(),
-      type: String(row.type || '').trim(),
-      scheduledService: String(row.scheduled_service || '').trim().toLowerCase() === 'yes',
-      latitude: finiteOrNull(row.latitude_deg),
-      longitude: finiteOrNull(row.longitude_deg),
-      homeLink: String(row.home_link || '').trim() || null
-    }))
-    .filter(item =>
-      /^[A-Z]{3}$/.test(item.iataCode) &&
-      item.scheduledService &&
-      !['closed', 'heliport', 'seaplane_base', 'balloonport'].includes(item.type)
-    )
-    .map(item => ({
-      ...item,
-      city: item.city || item.name || item.iataCode,
-      ryanair: ryanairCodes.has(item.iataCode)
-    }))
+  for (const feature of data.features) {
+    const a = feature?.attributes || {};
+    const iataCode = String(a.iata || '').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(iataCode)) continue;
+
+    const type = String(a.apttype || '').trim();
+    const authority = String(a.authority || '').trim();
+
+    // Manteniamo tutti gli aeroporti con IATA: la successiva ricerca voli
+    // stabilisce se esiste davvero un servizio commerciale utile.
+    // Escludiamo soltanto strutture esplicitamente non aeroportuali.
+    if (!['Airport', 'Airfield', 'Airstrip'].includes(type)) continue;
+
+    const city = String(a.city || '').trim();
+    const name = String(a.namelong || a.nameshort || '').trim();
+
+    byIata.set(iataCode, {
+      iataCode,
+      name: name || `Aeroporto ${iataCode}`,
+      city: city || name || iataCode,
+      countryCode,
+      type: type || 'Airport',
+      airportClass: String(a.aptclass || '').trim() || null,
+      authority: authority || null,
+      status: String(a.status || '').trim() || null,
+      scheduledService: true,
+      ryanair: ryanairCodes.has(iataCode),
+      latitude: finiteOrNull(a.latitude),
+      longitude: finiteOrNull(a.longitude)
+    });
+  }
+
+  const airports = [...byIata.values()]
     .sort((a, b) => a.city.localeCompare(b.city, 'it') || a.iataCode.localeCompare(b.iataCode));
 
   return {
     countryCode,
     countryName: countryName || countryCode,
-    source: 'OurAirports',
-    sourceUpdated: 'daily',
+    source: 'WFP Global Airports',
     airports
   };
 }
+
 
 async function fetchRyanairCountryAirportCodes(query) {
   try {
@@ -183,62 +209,6 @@ async function fetchRyanairCountryAirportCodes(query) {
   } catch {
     return new Set();
   }
-}
-
-function parseCsvObjects(text) {
-  const rows = parseCsvRows(String(text || ''));
-  if (!rows.length) return [];
-
-  const headers = rows[0].map(value => String(value || '').trim());
-  return rows.slice(1)
-    .filter(row => row.some(value => String(value || '').trim()))
-    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
-}
-
-function parseCsvRows(text) {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let quoted = false;
-
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-
-    if (quoted) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i += 1;
-        } else {
-          quoted = false;
-        }
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      quoted = true;
-    } else if (ch === ',') {
-      row.push(field);
-      field = '';
-    } else if (ch === '\n') {
-      row.push(field.replace(/\r$/, ''));
-      rows.push(row);
-      row = [];
-      field = '';
-    } else {
-      field += ch;
-    }
-  }
-
-  if (field.length || row.length) {
-    row.push(field.replace(/\r$/, ''));
-    rows.push(row);
-  }
-
-  return rows;
 }
 
 function finiteOrNull(value) {
