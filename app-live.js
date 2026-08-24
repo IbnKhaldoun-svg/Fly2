@@ -37,6 +37,8 @@
   let preferredCodes = [];
   const bookingStore = new Map();
   const bookingModal = createUnifiedBookingModal();
+  const detailsStore = new Map();
+  const detailsModal = createFlightDetailsModal();
   const layoverStore = new Map();
   const airportMetaCache = new Map();
   const layoverModal = createLayoverModal();
@@ -52,6 +54,14 @@
       event.preventDefault();
       const item = bookingStore.get(bookingButton.dataset.bookingKey);
       if (item) openUnifiedBookingModal(item);
+      return;
+    }
+
+    const detailsButton = event.target.closest?.('.flight-details-button[data-details-key]');
+    if (detailsButton) {
+      event.preventDefault();
+      const item = detailsStore.get(detailsButton.dataset.detailsKey);
+      if (item) openFlightDetailsModal(item);
       return;
     }
 
@@ -367,7 +377,9 @@
     ].filter(Boolean).join(' · ') || 'Bagaglio incluso non indicato';
 
     const bookingKey = itineraryMergeKey(item) || `booking-${index}-${Date.now()}`;
+    const detailsKey = `details|${bookingKey}`;
     bookingStore.set(bookingKey, item);
+    detailsStore.set(detailsKey, item);
 
     return `<article class="flight-card compact-flight-card" data-itinerary-key="${escAttr(bookingKey)}">
       <div class="flight-card-head compact-flight-head">
@@ -384,20 +396,12 @@
         ${item.inbound ? renderLegSummary('Ritorno', item.inbound) : ''}
       </div>
 
-      <details class="flight-details">
-        <summary>
-          <span>Dettagli volo</span>
-          <span class="flight-details-chevron">⌄</span>
-        </summary>
-        <div class="flight-details-body">
-          ${renderLeg('Andata', item.outbound)}
-          ${item.inbound ? renderLeg('Ritorno', item.inbound) : ''}
-        </div>
-      </details>
-
       <div class="flight-foot compact-flight-foot">
         <span>${esc(bagText)}</span>
-        <button type="button" class="unified-booking-button" data-booking-key="${escAttr(bookingKey)}">Prenota <span aria-hidden="true">↗</span></button>
+        <div class="flight-card-actions">
+          <button type="button" class="flight-details-button" data-details-key="${escAttr(detailsKey)}">Dettagli volo</button>
+          <button type="button" class="unified-booking-button" data-booking-key="${escAttr(bookingKey)}">Prenota <span aria-hidden="true">↗</span></button>
+        </div>
       </div>
     </article>`;
   }
@@ -783,6 +787,74 @@
       Belgium: 'BE', Belgio: 'BE', Greece: 'GR', Grecia: 'GR', Turkey: 'TR', Turchia: 'TR'
     };
     return map[text] || '';
+  }
+
+  function createFlightDetailsModal() {
+    const modal = document.createElement('div');
+    modal.className = 'flight-details-modal hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="flight-details-backdrop" data-flight-details-close></div>
+      <section class="flight-details-dialog" role="dialog" aria-modal="true" aria-labelledby="flightDetailsTitle">
+        <div class="flight-details-modal-head">
+          <div>
+            <span class="flight-details-kicker">Itinerario completo</span>
+            <h2 id="flightDetailsTitle">Dettagli volo</h2>
+          </div>
+          <button type="button" class="flight-details-close" data-flight-details-close aria-label="Chiudi">×</button>
+        </div>
+        <div class="flight-details-modal-content"></div>
+      </section>`;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', event => {
+      if (event.target.closest('[data-flight-details-close]')) closeFlightDetailsModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeFlightDetailsModal();
+    });
+
+    return modal;
+  }
+
+  function openFlightDetailsModal(item) {
+    const content = $('.flight-details-modal-content', detailsModal);
+    if (!content) return;
+
+    const baggage = item?.baggage || {};
+    const bagText = [
+      baggage.personalItem ? `${baggage.personalItem} oggetto personale` : null,
+      baggage.cabinBag ? `${baggage.cabinBag} bagaglio a mano` : null,
+      baggage.checkedBag ? `${baggage.checkedBag} bagaglio in stiva` : null
+    ].filter(Boolean).join(' · ') || 'Bagaglio incluso non indicato';
+
+    content.innerHTML = `
+      <div class="flight-details-price-row">
+        <div>
+          <span>${esc(item?.source || 'Kiwi')}</span>
+          <strong>${esc(item?.priceFormatted || (item?.price != null ? `${item.price} EUR` : 'Prezzo non disponibile'))}</strong>
+        </div>
+        <div>
+          <span>Durata totale</span>
+          <strong>${duration(item?.totalDurationSeconds)}</strong>
+        </div>
+      </div>
+      <div class="flight-details-modal-legs">
+        ${renderLeg('Andata', item?.outbound)}
+        ${item?.inbound ? renderLeg('Ritorno', item.inbound) : ''}
+      </div>
+      <div class="flight-details-baggage">${esc(bagText)}</div>`;
+
+    detailsModal.classList.remove('hidden');
+    detailsModal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('flight-details-modal-open');
+    $('.flight-details-close', detailsModal)?.focus();
+  }
+
+  function closeFlightDetailsModal() {
+    detailsModal.classList.add('hidden');
+    detailsModal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('flight-details-modal-open');
   }
 
   function createUnifiedBookingModal() {
