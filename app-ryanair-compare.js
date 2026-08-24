@@ -64,7 +64,7 @@
   const bookingModal = createBookingModal();
 
   document.addEventListener('click', event => {
-    const button = event.target.closest?.('.ryanair-booking-button[data-booking-key]');
+    const button = event.target.closest?.('.ryanair-booking-button-legacy[data-booking-key]');
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
@@ -278,14 +278,12 @@
 
     const kiwiBySignature = new Map(latestKiwiItems.map(item => [itinerarySignature(item), item]));
 
-    $$('#resultContent .flight-card').forEach((card, index) => {
+    $('#resultContent .flight-card').forEach(card => {
       const signature = cardSignature(card);
-      const kiwi = kiwiBySignature.get(signature) || latestKiwiItems[index];
+      const kiwi = kiwiBySignature.get(signature);
       if (!kiwi || !allRyanair(kiwi)) return;
 
       card.dataset.ryanairItinerary = 'true';
-      hideGenericRyanairLink(card);
-      ensureRyanairBooking(card, kiwi, signature || itinerarySignature(kiwi));
 
       const direct = latestMatches.get(itinerarySignature(kiwi));
       if (direct) {
