@@ -22,6 +22,11 @@
     airlineModeStyle.href = './styles-airline-mode.css';
     document.head.appendChild(airlineModeStyle);
 
+    const ryanairCompareStyle = document.createElement('link');
+    ryanairCompareStyle.rel = 'stylesheet';
+    ryanairCompareStyle.href = './styles-ryanair-compare.css';
+    document.head.appendChild(ryanairCompareStyle);
+
     const style = document.createElement('style');
     style.textContent = `
       .back-to-top {
@@ -86,6 +91,9 @@
       const airlineMode = document.createElement('script');
       airlineMode.src = './app-airline-mode.js';
       airlineMode.onload = () => {
+      const ryanairCompare = document.createElement('script');
+      ryanairCompare.src = './app-ryanair-compare.js';
+      ryanairCompare.onload = () => {
       const live = document.createElement('script');
       live.src = './app-live.js';
       live.onload = () => {
@@ -102,6 +110,9 @@
       };
       live.onerror = () => console.error('Impossibile caricare la ricerca voli live di Fly2.');
       document.head.appendChild(live);
+      };
+      ryanairCompare.onerror = () => console.error('Impossibile caricare il confronto prezzi Ryanair.');
+      document.head.appendChild(ryanairCompare);
       };
       airlineMode.onerror = () => console.error('Impossibile caricare il filtro compagnie di Fly2.');
       document.head.appendChild(airlineMode);
