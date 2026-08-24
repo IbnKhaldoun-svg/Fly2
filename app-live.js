@@ -264,7 +264,11 @@
 
   function renderResults(items) {
     const content = $('#resultContent');
-    content.innerHTML = `<div class="live-results-meta"><strong>${items.length} itinerari</strong><span>Prezzi e disponibilità ricevuti da Kiwi.com al momento della ricerca.</span></div>` + items.map((item, index) => renderItinerary(item, index)).join('');
+    const hasDirect = items.some(item => item?.source && item.source !== 'Kiwi');
+    const sourceText = hasDirect
+      ? 'Risultati combinati da Kiwi.com e fonti dirette verificate.'
+      : 'Prezzi e disponibilità ricevuti da Kiwi.com al momento della ricerca.';
+    content.innerHTML = `<div class="live-results-meta"><strong>${items.length} itinerari</strong><span>${sourceText}</span></div>` + items.map((item, index) => renderItinerary(item, index)).join('');
     $('#resultSection').classList.remove('hidden');
     $('#resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
