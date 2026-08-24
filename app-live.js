@@ -29,6 +29,10 @@
     HV: 'https://www.transavia.com/', TO: 'https://www.transavia.com/',
     EW: 'https://www.eurowings.com/', DY: 'https://www.norwegian.com/',
     PC: 'https://www.flypgs.com/',
+    TB: 'https://www.tuifly.be/en',
+    X3: 'https://www.tui.com/flug/',
+    BY: 'https://www.tui.nl/vliegtickets/',
+    TOM: 'https://www.tui.co.uk/flight/',
 
     // Gruppi europei / network carrier
     AZ: 'https://www.ita-airways.com/',
@@ -80,7 +84,9 @@
     'austrian airlines': 'https://www.austrian.com/',
     'norwegian': 'https://www.norwegian.com/',
     'pegasus airlines': 'https://www.flypgs.com/',
-    'brussels airlines': 'https://www.brusselsairlines.com/'
+    'brussels airlines': 'https://www.brusselsairlines.com/',
+    'tui fly belgium': 'https://www.tuifly.be/en',
+    'tui fly': 'https://www.tuifly.be/en'
   };
 
   let liveResults = [];
@@ -951,14 +957,15 @@
     list.innerHTML = segments.map((segment, index) => {
       const carrier = String(segment?.carrier || '').trim().toUpperCase();
       const airline = segment?.carrierName || carrier || 'Compagnia';
-      const officialHome =
+      const mappedOfficialHome =
         officialAirlineSites[carrier] ||
         officialAirlineSitesByName[norm(airline)] ||
         null;
-      const officialUrl = carrier === 'FR'
-        ? buildRyanairBookingUrl(segment, passengers)
-        : officialHome;
       const officialPrefilled = carrier === 'FR';
+      const officialIsDirect = officialPrefilled || Boolean(mappedOfficialHome);
+      const officialUrl = officialPrefilled
+        ? buildRyanairBookingUrl(segment, passengers)
+        : mappedOfficialHome || buildOfficialSiteSearchUrl(airline, carrier);
       const direction = index < outbound.length ? 'Andata' : 'Ritorno';
       const fromCity = segment?.fromCity || segment?.from || '';
       const toCity = segment?.toCity || segment?.to || '';
@@ -977,8 +984,8 @@
           </div>
           <div class="unified-booking-actions">
             ${officialUrl
-              ? `<a class="unified-booking-action official" href="${escAttr(officialUrl)}" target="_blank" rel="noopener noreferrer">${officialPrefilled ? 'Compagnia · già impostato' : 'Sito compagnia'} ↗</a>`
-              : '<span class="unified-booking-action disabled">Compagnia non disponibile</span>'}
+              ? `<a class="unified-booking-action official" href="${escAttr(officialUrl)}" target="_blank" rel="noopener noreferrer">${officialPrefilled ? 'Compagnia · già impostato' : officialIsDirect ? 'Sito compagnia' : 'Trova sito ufficiale'} ↗</a>`
+              : '<span class="unified-booking-action disabled">Sito ufficiale non trovato</span>'}
             ${kiwiUrl
               ? `<a class="unified-booking-action kiwi" href="${escAttr(kiwiUrl)}" target="_blank" rel="noopener noreferrer">Kiwi ↗</a>`
               : '<span class="unified-booking-action disabled">Kiwi non disponibile</span>'}
@@ -1025,6 +1032,15 @@
       tpDestinationIata: segment?.to || ''
     });
     return `https://www.ryanair.com/it/it/trip/flights/select?${params.toString()}`;
+  }
+
+  function buildOfficialSiteSearchUrl(airline, carrier) {
+    const query = [String(airline || '').trim(), String(carrier || '').trim(), 'official airline website']
+      .filter(Boolean)
+      .join(' ');
+    return query
+      ? `https://www.google.com/search?q=${encodeURIComponent(query)}`
+      : null;
   }
 
   function formatBookingDateTime(value) {
