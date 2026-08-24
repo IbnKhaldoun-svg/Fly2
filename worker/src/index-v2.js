@@ -67,7 +67,8 @@ async function searchFlights(input, cors) {
     const args = buildSearchArguments(tool.inputSchema || {}, input);
     const rawResult = await client.callTool(tool.name, args);
     const result = normalizeToolResult(rawResult);
-    return json({ ok: true, provider: 'Kiwi.com MCP', tool: tool.name, request: input, result }, 200, cors);
+    const sanitized = removeHiddenCityItineraries(result);
+    return json({ ok: true, provider: 'Kiwi.com MCP', tool: tool.name, request: input, result: sanitized }, 200, cors);
   } catch (error) {
     return json({ ok: false, error: safeError(error) }, 502, cors);
   }
@@ -253,6 +254,62 @@ function validateRyanairCompare(input) {
   if (!isIsoDate(input.departureDate)) throw new Error('Data di partenza Ryanair non valida.');
   if (input.returnDate && !isIsoDate(input.returnDate)) throw new Error('Data di ritorno Ryanair non valida.');
   if (input.returnDate && input.returnDate < input.departureDate) throw new Error('Il ritorno Ryanair non può precedere la partenza.');
+}
+
+
+function removeHiddenCityItineraries(result) {
+  if (!result || typeof result !== 'object' || !Array.isArray(result.itineraries)) return result;
+
+  const clean = result.itineraries.filter(item => !isHiddenCityItinerary(item));
+  if (clean.length === result.itineraries.length) return result;
+
+  return {
+    ...result,
+    itineraries: clean,
+    hiddenCityExcluded: result.itineraries.length - clean.length
+  };
+}
+
+function isHiddenCityItinerary(item) {
+  if (!item || typeof item !== 'object') return false;
+
+  const explicitKeys = new Set([
+    'hiddencity', 'hidden_city', 'hidden-city', 'ishiddencity', 'is_hidden_city',
+    'hiddenCity', 'hiddenCityTicket', 'hidden_city_ticket', 'throwawayticketing'
+  ]);
+
+  const visit = (value, depth = 0) => {
+    if (depth > 8 || value === null || value === undefined) return false;
+
+    if (typeof value === 'string') {
+      const text = value.toLowerCase();
+      return text.includes('hidden city') ||
+        text.includes('hidden-city') ||
+        text.includes('città nascosta') ||
+        text.includes('citta nascosta') ||
+        text.includes('throwaway ticket');
+    }
+
+    if (Array.isArray(value)) return value.some(entry => visit(entry, depth + 1));
+
+    if (typeof value === 'object') {
+      return Object.entries(value).some(([key, entry]) => {
+        const normalizedKey = String(key).replace(/\s+/g, '').toLowerCase();
+        const directFlag =
+          explicitKeys.has(key) ||
+          explicitKeys.has(normalizedKey) ||
+          normalizedKey.includes('hiddencity') ||
+          normalizedKey.includes('hidden_city');
+
+        if (directFlag && (entry === true || entry === 1 || String(entry).toLowerCase() === 'true')) return true;
+        return visit(entry, depth + 1);
+      });
+    }
+
+    return false;
+  };
+
+  return visit(item);
 }
 
 function buildSearchArguments(inputSchema, input) {
