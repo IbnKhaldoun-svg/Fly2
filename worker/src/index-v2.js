@@ -132,13 +132,45 @@ function buildRyanairFinderPayload(input) {
     ? null
     : maxLayoverHours <= 8 ? 480 : 1440;
 
-  return {
+  const common = {
     origin: String(input.originIata).toUpperCase(),
     destination: String(input.destinationIata).toUpperCase(),
     connectionPreference,
     maxLayoverMinutes,
     excludedLayoverCountryCodes: Array.isArray(input.excludeStopoverCountries) ? input.excludeStopoverCountries : [],
     excludedLayoverAirportCodes: [],
+    adults: clampInt(input.adults, 1, 9, 1),
+    teens: 0,
+    children: clampInt(input.children, 0, 8, 0),
+    infants: clampInt(input.infants, 0, 4, 0),
+    currency: 'EUR'
+  };
+
+  if (input.searchMode === 'cheapest') {
+    const horizon = [3, 6, 12].includes(Number(input.searchHorizonMonths))
+      ? Number(input.searchHorizonMonths)
+      : 3;
+    return {
+      ...common,
+      tripType: 'round-trip',
+      searchMode: 'cheapest-stay',
+      searchHorizonMonths: horizon,
+      stayNights: clampInt(input.stayNights, 1, 15, 3),
+      outbound: {
+        mode: 'fixed',
+        startDate: input.departureDate,
+        flexibilityDays: 0
+      },
+      inbound: {
+        mode: 'fixed',
+        startDate: addIsoDays(input.departureDate, 1),
+        flexibilityDays: 0
+      }
+    };
+  }
+
+  return {
+    ...common,
     tripType: input.returnDate ? 'round-trip' : 'one-way',
     searchMode: 'selected-dates',
     outbound: {
@@ -150,12 +182,7 @@ function buildRyanairFinderPayload(input) {
       mode: 'fixed',
       startDate: input.returnDate,
       flexibilityDays: 0
-    } : undefined,
-    adults: clampInt(input.adults, 1, 9, 1),
-    teens: 0,
-    children: clampInt(input.children, 0, 8, 0),
-    infants: clampInt(input.infants, 0, 4, 0),
-    currency: 'EUR'
+    } : undefined
   };
 }
 
@@ -169,13 +196,29 @@ function normalizeRyanairItinerary(item, passengers) {
   const signature = segments.map(segment => routeTimePart(segment)).filter(Boolean).join('|');
   if (!signature) return null;
 
+  const totalPrice = Number(item.totalPrice);
+  const totalDurationSeconds = Number(item.totalDurationMinutes || 0) * 60;
+
   return {
     signature,
-    totalPrice: Number(item.totalPrice),
+    totalPrice,
     currency: item.currency || 'EUR',
+    totalDurationSeconds,
+    totalStops: Number(item.totalStops || 0),
+    nights: item.nights == null ? null : Number(item.nights),
     selfTransfer: Boolean(item.outbound?.selfTransfer || item.inbound?.selfTransfer),
     outbound,
     inbound,
+    fly2Itinerary: {
+      source: 'Ryanair diretto',
+      price: totalPrice,
+      priceFormatted: new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(totalPrice),
+      totalDurationSeconds,
+      baggage: {},
+      bookingUrl: null,
+      outbound: toFly2Leg(outbound),
+      inbound: inbound ? toFly2Leg(inbound) : null
+    },
     bookingLinks: segments.map(segment => ({
       label: `${segment.from} → ${segment.to}`,
       flightNumber: segment.flightNumber,
@@ -187,16 +230,58 @@ function normalizeRyanairItinerary(item, passengers) {
 
 function normalizeRyanairLeg(leg) {
   if (!leg || !Array.isArray(leg.segments)) return null;
+  const segments = leg.segments.map(segment => ({
+    flightNumber: String(segment.flightNumber || '').trim(),
+    from: segment.origin?.iataCode || '',
+    to: segment.destination?.iataCode || '',
+    fromCity: segment.origin?.city || segment.origin?.iataCode || '',
+    toCity: segment.destination?.city || segment.destination?.iataCode || '',
+    fromCountry: segment.origin?.countryCode || '',
+    toCountry: segment.destination?.countryCode || '',
+    fromName: segment.origin?.name || '',
+    toName: segment.destination?.name || '',
+    departureAt: segment.departureAt || '',
+    arrivalAt: segment.arrivalAt || '',
+    durationSeconds: Number(segment.durationMinutes || 0) * 60,
+    price: Number(segment.price),
+    carrier: 'FR',
+    carrierName: 'Ryanair'
+  }));
+
   return {
     selfTransfer: Boolean(leg.selfTransfer),
     stops: Number(leg.stops || 0),
+    departureAt: leg.departureAt || segments[0]?.departureAt || '',
+    arrivalAt: leg.arrivalAt || segments[segments.length - 1]?.arrivalAt || '',
+    durationSeconds: Number(leg.durationMinutes || 0) * 60,
+    segments
+  };
+}
+
+function toFly2Leg(leg) {
+  return {
+    route: leg.segments.length
+      ? [leg.segments[0].from, ...leg.segments.map(segment => segment.to)]
+      : [],
+    stops: leg.stops,
+    durationSeconds: leg.durationSeconds,
+    departureTime: leg.departureAt,
+    arrivalTime: leg.arrivalAt,
     segments: leg.segments.map(segment => ({
-      flightNumber: String(segment.flightNumber || '').trim(),
-      from: segment.origin?.iataCode || '',
-      to: segment.destination?.iataCode || '',
-      departureAt: segment.departureAt || '',
-      arrivalAt: segment.arrivalAt || '',
-      price: Number(segment.price)
+      carrier: 'FR',
+      carrierName: 'Ryanair',
+      flightNumber: segment.flightNumber,
+      from: segment.from,
+      to: segment.to,
+      fromCity: segment.fromCity,
+      toCity: segment.toCity,
+      fromCountry: segment.fromCountry,
+      toCountry: segment.toCountry,
+      fromName: segment.fromName,
+      toName: segment.toName,
+      departureTime: segment.departureAt,
+      arrivalTime: segment.arrivalAt,
+      durationSeconds: segment.durationSeconds
     }))
   };
 }
@@ -252,8 +337,21 @@ function validateRyanairCompare(input) {
     throw new Error('Per il confronto Ryanair servono codici IATA validi.');
   }
   if (!isIsoDate(input.departureDate)) throw new Error('Data di partenza Ryanair non valida.');
+
+  if (input.searchMode === 'cheapest') {
+    if (!Number.isFinite(Number(input.stayNights))) throw new Error('Numero di notti Ryanair non valido.');
+    return;
+  }
+
   if (input.returnDate && !isIsoDate(input.returnDate)) throw new Error('Data di ritorno Ryanair non valida.');
   if (input.returnDate && input.returnDate < input.departureDate) throw new Error('Il ritorno Ryanair non può precedere la partenza.');
+}
+
+function addIsoDays(value, days) {
+  const date = new Date(String(value) + 'T12:00:00Z');
+  if (Number.isNaN(date.getTime())) return value;
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10);
 }
 
 
