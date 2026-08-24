@@ -165,7 +165,7 @@ function normalizeRyanairItinerary(item, passengers) {
   if (!outbound) return null;
 
   const segments = [...outbound.segments, ...(inbound?.segments || [])];
-  const signature = segments.map(segment => normalizeFlightNumber(segment.flightNumber)).filter(Boolean).join('|');
+  const signature = segments.map(segment => routeTimePart(segment)).filter(Boolean).join('|');
   if (!signature) return null;
 
   return {
@@ -232,8 +232,17 @@ function ryanairBookingUrl(origin, destination, departureAt, passengers = {}) {
   return `https://www.ryanair.com/it/it/trip/flights/select?${params.toString()}`;
 }
 
-function normalizeFlightNumber(value) {
-  return String(value || '').replace(/\s+/g, '').toUpperCase();
+function routeTimePart(segment) {
+  const from = String(segment?.from || '').trim().toUpperCase();
+  const to = String(segment?.to || '').trim().toUpperCase();
+  const departure = wallClockMinute(segment?.departureAt);
+  return from && to && departure ? `${from}-${to}@${departure}` : '';
+}
+
+function wallClockMinute(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return match ? `${match[1]}T${match[2]}` : text.slice(0, 16);
 }
 
 function validateRyanairCompare(input) {
