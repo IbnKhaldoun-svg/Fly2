@@ -1,5 +1,6 @@
 (() => {
   const API_URL = 'https://fly2-api.fly2-search.workers.dev/search';
+  const COUNTRY_DIRECT_API = 'https://fly2-api.fly2-search.workers.dev/ryanair-country';
   const AIRPORT_META_API = 'https://fly2-api.fly2-search.workers.dev/airports';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -154,14 +155,25 @@
           kiwiBookingUrl: item?.kiwiBookingUrl || item?.bookingUrl || null
         }));
       liveResults = applyLocalPolicies(kiwiItems);
-      if (!liveResults.length) {
-        showMessage('Nessun volo compatibile', 'Kiwi ha risposto correttamente, ma nessun itinerario rispetta tutti i filtri selezionati.');
-        return;
-      }
+      const countryDirectSearch = payload.destinationType === 'country' && Boolean(payload.originIata);
+
       $('#resultTitle').textContent = result.query || `${payload.origin} → ${payload.destination}`;
       $('#resultSortWrap').classList.remove('hidden');
       $('#resultSort').value = 'Predefinito';
-      renderSorted();
+
+      if (liveResults.length) {
+        renderSorted();
+      } else if (!countryDirectSearch) {
+        showMessage('Nessun volo compatibile', 'Kiwi ha risposto correttamente, ma nessun itinerario rispetta tutti i filtri selezionati.');
+        return;
+      }
+
+      if (countryDirectSearch) {
+        await mergeCountryDirectResults(payload);
+        if (!liveResults.length) {
+          showMessage('Nessun volo compatibile', 'Né Kiwi né la ricerca diretta Ryanair hanno trovato itinerari compatibili con tutti i filtri selezionati.');
+        }
+      }
     } catch (error) {
       showMessage('Ricerca non riuscita', error instanceof Error ? error.message : String(error));
     }
@@ -176,7 +188,23 @@
 
     const trip = $('.segment.active')?.dataset.trip || 'roundtrip';
     const mode = $('.chip.active')?.dataset.mode || 'flexible';
-    const payload = { origin, destination, ...readPassengers(), maxStopovers: Number($('#stops')?.value || 1), sort: 'price' };
+    const originInput = $('#origin');
+    const destinationInput = $('#destination');
+    const destinationType =
+      destinationInput?.dataset.locationType ||
+      (countryCodes[destination] ? 'country' : '');
+    const payload = {
+      origin,
+      destination,
+      originType: originInput?.dataset.locationType || '',
+      originIata: originInput?.dataset.locationIata || '',
+      destinationType,
+      destinationIata: destinationInput?.dataset.locationIata || '',
+      destinationCountryCode: destinationType === 'country' ? (countryCodes[destination] || '') : '',
+      ...readPassengers(),
+      maxStopovers: Number($('#stops')?.value || 1),
+      sort: 'price'
+    };
 
     if (mode === 'flexible') applyFlexibleDates(payload, trip);
     if (mode === 'cheapest') applyCheapestDates(payload);
@@ -336,6 +364,45 @@
       .join('|');
   }
 
+  async function mergeCountryDirectResults(payload) {
+    const request = {
+      originIata: payload.originIata,
+      destinationCountryName: payload.destination,
+      destinationCountryCode: payload.destinationCountryCode || '',
+      departureDate: payload.departureDate,
+      departureDateTo: payload.departureDateTo || null,
+      departureDateFlexDays: payload.departureDateFlexDays || 0,
+      returnDate: payload.returnDate || null,
+      returnDateTo: payload.returnDateTo || null,
+      returnDateFlexDays: payload.returnDateFlexDays || 0,
+      adults: payload.adults || 1,
+      children: payload.children || 0,
+      infants: payload.infants || 0,
+      maxStopovers: payload.maxStopovers ?? 1,
+      maxLayoverHours: payload.maxLayoverHours ?? null,
+      excludeStopoverCountries: payload.excludeStopoverCountries || []
+    };
+
+    try {
+      const response = await fetch(COUNTRY_DIRECT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request)
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) return;
+
+      const external = data.itineraries
+        .map(item => item?.fly2Itinerary)
+        .filter(item => item && Number.isFinite(Number(item.price)));
+
+      if (!external.length) return;
+      mergeExternalResults(external);
+    } catch {
+      // Kiwi results remain usable if the direct country scan is temporarily unavailable.
+    }
+  }
+
   function mergeExternalResults(items = []) {
     if (!Array.isArray(items) || !items.length) return;
 
@@ -400,7 +467,7 @@
     }, null);
 
     const cheapestSource = cheapest
-      ? (window.fly2Pricing?.source?.(cheapest.item) || cheapest.item?.source || 'Kiwi')
+      ? (cheapest.item?.source || window.fly2Pricing?.source?.(cheapest.item) || 'Kiwi')
       : '';
     const cheapestPrice = cheapest
       ? new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cheapest.price)
