@@ -488,12 +488,12 @@
     const directStatus = countrySearchContext.directAttempts
       ? (
           countrySearchContext.directFailures === countrySearchContext.directAttempts
-            ? 'Kiwi disponibile · Ryanair diretto non disponibile in questa ricerca'
+            ? 'Kiwi disponibile · Ryanair non disponibile in questa ricerca'
             : countrySearchContext.directFailures
-              ? `Kiwi + Ryanair diretto · ${countrySearchContext.directFailures} verifiche Ryanair non riuscite`
-              : 'Kiwi + Ryanair diretto disponibili'
+              ? `Kiwi + Ryanair · ${countrySearchContext.directFailures} verifiche Ryanair non riuscite`
+              : 'Kiwi + Ryanair disponibili'
         )
-      : 'Kiwi disponibile · nessuna verifica Ryanair diretta necessaria';
+      : 'Kiwi disponibile · nessuna verifica Ryanair necessaria';
 
     $('#resultContent').innerHTML = `
       <div class="country-choice-head">
