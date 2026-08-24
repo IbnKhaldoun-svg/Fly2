@@ -22,7 +22,7 @@
     BA: 'https://www.britishairways.com/',
     TP: 'https://www.flytap.com/',
     TK: 'https://www.turkishairlines.com/',
-    AT: 'https://www.royalairmaroc.com/',
+    AT: 'https://www.royalairmaroc.com/it-it/booking/book-a-flight',
     HV: 'https://www.transavia.com/',
     EW: 'https://www.eurowings.com/',
     OS: 'https://www.austrian.com/',
@@ -168,12 +168,10 @@
       const carrier = segment?.carrier || '';
       const airline = segment?.carrierName || carrier || 'Compagnia';
       const official = officialAirlineSites[carrier];
-      const prefilled = carrier === 'FR' || carrier === 'AT';
+      const prefilled = carrier === 'FR';
       const href = carrier === 'FR'
         ? buildRyanairUrl(segment?.from, segment?.to, segment?.departureTime, passengers)
-        : carrier === 'AT'
-          ? buildRoyalAirMarocUrl(segment?.from, segment?.to, segment?.departureTime, passengers)
-          : official;
+        : official;
 
       if (!href) return '';
 
@@ -246,41 +244,6 @@
       tpDestinationIata: destination || ''
     });
     return `https://www.ryanair.com/it/it/trip/flights/select?${params.toString()}`;
-  }
-
-  function buildRoyalAirMarocUrl(origin, destination, departureAt, passengers) {
-    const date = String(departureAt || '').slice(0, 10).replace(/-/g, '');
-    const params = new URLSearchParams({
-      TRIP_FLOW: 'YES',
-      BOOKING_FLOW: 'REVENUE',
-      B_LOCATION_1: origin || '',
-      B_DATE_1: date ? date + '0000' : '',
-      B_ANY_TIME_1: 'TRUE',
-      E_LOCATION_1: destination || '',
-      TRIP_TYPE: 'O',
-      PRICING_TYPE: 'O',
-      EMBEDDED_TRANSACTION: 'FlexPricerAvailability',
-      DISPLAY_TYPE: '2',
-      ARRANGE_BY: 'R',
-      SO_SITE_MATRIX_CALENDAR: 'FALSE',
-      REFRESH: '0',
-      DATE_RANGE_VALUE_1: '0',
-      DATE_RANGE_QUALIFIER_1: 'C',
-      EXTERNAL_ID: 'BOOKING',
-      SO_SITE_AIRLINE_CODE: 'AT',
-      LANGUAGE: 'IT'
-    });
-
-    const travellerTypes = [];
-    for (let i = 0; i < Math.max(1, Number(passengers.adults || 1)); i++) travellerTypes.push('ADT');
-    for (let i = 0; i < Number(passengers.children || 0); i++) travellerTypes.push('CHD');
-
-    travellerTypes.slice(0, 9).forEach((type, index) => {
-      params.set(`TRAVELLER_TYPE_${index + 1}`, type);
-      params.set(`HAS_INFANT_${index + 1}`, index < Number(passengers.infants || 0) ? 'TRUE' : 'FALSE');
-    });
-
-    return `https://book.royalairmaroc.com/plnext/5APHOneWayDX/Override.action?${params.toString()}`;
   }
 
   function formatSegmentDateTime(value) {
