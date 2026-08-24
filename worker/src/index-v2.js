@@ -51,19 +51,26 @@ export default {
           .split(',')
           .map(code => code.trim().toUpperCase())
           .filter(code => /^[A-Z]{3}$/.test(code))
-          .slice(0, 50);
-        if (!codes.length) return json({ ok: true, airports: [] }, 200, cors);
+          .slice(0, 200);
+        const query = String(url.searchParams.get('q') || '').trim();
 
         const upstream = new URL(RYANAIR_AIRPORTS_URL);
-        upstream.searchParams.set('codes', codes.join(','));
+        if (codes.length) upstream.searchParams.set('codes', codes.join(','));
+        else if (query.length >= 2) upstream.searchParams.set('q', query);
+        else return json({ ok: true, airports: [], locations: [] }, 200, cors);
+
         const response = await fetch(upstream.toString(), {
           headers: { 'Accept': 'application/json' }
         });
         const data = await response.json().catch(() => null);
-        if (!response.ok || !data || !Array.isArray(data.airports)) {
+        if (!response.ok || !data) {
           throw new Error(`Airport metadata HTTP ${response.status}`);
         }
-        return json({ ok: true, airports: data.airports }, 200, cors);
+        return json({
+          ok: true,
+          airports: Array.isArray(data.airports) ? data.airports : [],
+          locations: Array.isArray(data.locations) ? data.locations : []
+        }, 200, cors);
       } catch (error) {
         return json({ ok: false, error: safeError(error) }, 502, cors);
       }
