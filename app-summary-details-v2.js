@@ -59,7 +59,8 @@
     }
 
     const preferred = readTags('#airlineIncludeChips');
-    if (preferred.length) extras.push(`preferite: ${preferred.join(', ')}`);
+    const airlineMode = window.fly2AirlineMode?.getMode?.() || 'prefer';
+    if (preferred.length) extras.push(`${airlineMode === 'only' ? 'solo compagnie' : 'preferite'}: ${preferred.join(', ')}`);
 
     const excluded = readTags('#airlineExcludeChips');
     if (excluded.length) extras.push(`escluse: ${excluded.join(', ')}`);
