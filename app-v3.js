@@ -83,6 +83,12 @@
       live.onload = () => {
         const polish = document.createElement('script');
         polish.src = './app-polish.js';
+        polish.onload = () => {
+          const summaryDetails = document.createElement('script');
+          summaryDetails.src = './app-summary-details-v2.js';
+          summaryDetails.onerror = () => console.error('Impossibile caricare il riepilogo avanzato di Fly2.');
+          document.head.appendChild(summaryDetails);
+        };
         polish.onerror = () => console.error('Impossibile caricare i miglioramenti UI di Fly2.');
         document.head.appendChild(polish);
       };
