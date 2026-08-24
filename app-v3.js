@@ -17,6 +17,11 @@
     detailStyle.href = './styles-result-details.css';
     document.head.appendChild(detailStyle);
 
+    const airlineModeStyle = document.createElement('link');
+    airlineModeStyle.rel = 'stylesheet';
+    airlineModeStyle.href = './styles-airline-mode.css';
+    document.head.appendChild(airlineModeStyle);
+
     const style = document.createElement('style');
     style.textContent = `
       .back-to-top {
@@ -78,6 +83,9 @@
     const details = document.createElement('script');
     details.src = './app-result-details.js';
     details.onload = () => {
+      const airlineMode = document.createElement('script');
+      airlineMode.src = './app-airline-mode.js';
+      airlineMode.onload = () => {
       const live = document.createElement('script');
       live.src = './app-live.js';
       live.onload = () => {
@@ -94,6 +102,9 @@
       };
       live.onerror = () => console.error('Impossibile caricare la ricerca voli live di Fly2.');
       document.head.appendChild(live);
+      };
+      airlineMode.onerror = () => console.error('Impossibile caricare il filtro compagnie di Fly2.');
+      document.head.appendChild(airlineMode);
     };
     details.onerror = () => console.error('Impossibile caricare i dettagli di destinazioni e compagnie.');
     document.head.appendChild(details);
