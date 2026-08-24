@@ -82,11 +82,17 @@ function bind() {
     state.destination = oldOrigin;
     $('#origin').value = state.origin?.name || '';
     $('#destination').value = state.destination?.name || '';
+    syncLocationDataset($('#origin'), state.origin);
+    syncLocationDataset($('#destination'), state.destination);
   });
 
   $$('[data-clear]').forEach(button => button.addEventListener('click', () => {
     const id = button.dataset.clear;
-    $('#' + id).value = '';
+    const field = $('#' + id);
+    field.value = '';
+    delete field.dataset.locationType;
+    delete field.dataset.locationIata;
+    delete field.dataset.locationCountry;
     state[id] = null;
     $('#' + id + 'Suggestions')?.classList.add('hidden');
   }));
@@ -201,11 +207,30 @@ function handleAnywhere() {
   input.value = checked ? 'Ovunque' : '';
 }
 
+function syncLocationDataset(input, place) {
+  if (!input) return;
+  if (!place) {
+    delete input.dataset.locationType;
+    delete input.dataset.locationIata;
+    delete input.dataset.locationCountry;
+    return;
+  }
+  input.dataset.locationType = place.type || '';
+  if (place.iata) input.dataset.locationIata = place.iata;
+  else delete input.dataset.locationIata;
+  input.dataset.locationCountry = place.country || '';
+}
+
 function bindLocation(id, suggestionsId) {
   const input = $('#' + id);
   const box = $('#' + suggestionsId);
-  const update = () => {
-    state[id] = null;
+  const update = (event) => {
+    if (event?.type === 'input') {
+      state[id] = null;
+      delete input.dataset.locationType;
+      delete input.dataset.locationIata;
+      delete input.dataset.locationCountry;
+    }
     const query = norm(input.value);
     if (!query) {
       box.classList.add('hidden');
@@ -222,6 +247,10 @@ function bindLocation(id, suggestionsId) {
       const place = matches[Number(button.dataset.i)];
       state[id] = place;
       input.value = place.name;
+      input.dataset.locationType = place.type || '';
+      if (place.iata) input.dataset.locationIata = place.iata;
+      else delete input.dataset.locationIata;
+      input.dataset.locationCountry = place.country || '';
       box.classList.add('hidden');
     }));
   };
