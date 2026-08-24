@@ -3,6 +3,7 @@ const RYANAIR_FINDER_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/sear
 const RYANAIR_AIRPORTS_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/airports';
 const OURAIRPORTS_COUNTRY_BASE = 'https://ourairports.com/countries';
 const WFP_AIRPORTS_QUERY = 'https://gis.wfp.org/arcgis/rest/services/GLOBAL/GlobalAirports/FeatureServer/0/query';
+const DUFFEL_OFFER_REQUESTS_URL = 'https://api.duffel.com/air/offer_requests';
 const ALLOWED_ORIGINS = new Set([
   'https://ibnkhaldoun-svg.github.io',
   'http://localhost:3000',
@@ -10,14 +11,25 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const cors = corsHeaders(request);
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
     if (url.pathname === '/health' && request.method === 'GET') {
-      return json({ ok: true, service: 'Fly2 API', providers: ['Kiwi.com MCP', 'Ryanair direct fare finder'], upstream: KIWI_MCP_URL, mode: 'live-v3' }, 200, cors);
+      const duffelConfigured = Boolean(String(env?.DUFFEL_ACCESS_TOKEN || '').trim());
+      return json({
+        ok: true,
+        service: 'Fly2 API',
+        providers: [
+          { id: 'kiwi', name: 'Kiwi.com', configured: true },
+          { id: 'ryanair', name: 'Ryanair', configured: true },
+          { id: 'duffel', name: 'Duffel', configured: duffelConfigured }
+        ],
+        upstream: KIWI_MCP_URL,
+        mode: 'live-v4'
+      }, 200, cors);
     }
 
     if (url.pathname === '/tools' && request.method === 'GET') {
@@ -116,7 +128,18 @@ export default {
       }
     }
 
-    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /country-airports?country=MA&name=Marocco', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /country-pair-search', 'POST /ryanair-country', 'POST /ryanair-compare'] }, 404, cors);
+    if (url.pathname === '/duffel-search' && request.method === 'POST') {
+      try {
+        enforceAllowedOrigin(request);
+        const input = await request.json();
+        validateDuffelSearch(input);
+        return await searchDuffel(input, cors, env);
+      } catch (error) {
+        return json({ ok: false, error: safeError(error) }, 400, cors);
+      }
+    }
+
+    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /country-airports?country=MA&name=Marocco', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /country-pair-search', 'POST /ryanair-country', 'POST /ryanair-compare', 'POST /duffel-search'] }, 404, cors);
   }
 };
 
@@ -368,6 +391,252 @@ async function searchFlights(input, cors) {
   } catch (error) {
     return json({ ok: false, error: safeError(error) }, 502, cors);
   }
+}
+
+
+async function searchDuffel(input, cors, env) {
+  const token = String(env?.DUFFEL_ACCESS_TOKEN || '').trim();
+  if (!token) {
+    return json({
+      ok: false,
+      configured: false,
+      provider: 'Duffel',
+      error: 'Duffel non è ancora configurato su Fly2.'
+    }, 503, cors);
+  }
+
+  const slices = [
+    {
+      origin: String(input.originIata || input.origin || '').trim().toUpperCase(),
+      destination: String(input.destinationIata || input.destination || '').trim().toUpperCase(),
+      departure_date: input.departureDate
+    }
+  ];
+
+  if (input.returnDate) {
+    slices.push({
+      origin: slices[0].destination,
+      destination: slices[0].origin,
+      departure_date: input.returnDate
+    });
+  }
+
+  const passengers = [];
+  const adults = clampInt(input.adults, 1, 9, 1);
+  const children = clampInt(input.children, 0, 8, 0);
+  const infants = clampInt(input.infants, 0, adults, 0);
+  for (let i = 0; i < adults; i += 1) passengers.push({ type: 'adult' });
+  for (let i = 0; i < children; i += 1) passengers.push({ age: 8 });
+  for (let i = 0; i < infants; i += 1) passengers.push({ age: 1 });
+
+  const payload = {
+    data: {
+      slices,
+      passengers,
+      cabin_class: duffelCabinClass(input.cabinClass),
+      max_connections: clampInt(input.maxStopovers, 0, 2, 1)
+    }
+  };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 18_000);
+  try {
+    const response = await fetch(`${DUFFEL_OFFER_REQUESTS_URL}?return_offers=true&supplier_timeout=12000`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Accept-Encoding': 'gzip',
+        'Duffel-Version': 'v2',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.data) {
+      const message =
+        data?.errors?.[0]?.message ||
+        data?.errors?.[0]?.title ||
+        data?.message ||
+        `Duffel HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    const offers = Array.isArray(data.data.offers) ? data.data.offers : [];
+    let itineraries = offers
+      .map(normalizeDuffelOffer)
+      .filter(Boolean)
+      .filter(item => duffelMatchesPolicies(item, input));
+
+    itineraries.sort((a, b) => Number(a.price) - Number(b.price));
+
+    return json({
+      ok: true,
+      configured: true,
+      provider: 'Duffel',
+      liveMode: Boolean(data.data.live_mode),
+      requestId: data.data.id || null,
+      itineraries,
+      meta: {
+        count: itineraries.length,
+        expiresAt: itineraries.reduce((latest, item) => latest || item.duffelExpiresAt || null, null)
+      }
+    }, 200, cors);
+  } catch (error) {
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? 'La ricerca Duffel ha impiegato troppo tempo.'
+      : safeError(error);
+    return json({ ok: false, configured: true, provider: 'Duffel', error: message }, 502, cors);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function validateDuffelSearch(input) {
+  if (!input || typeof input !== 'object') throw new Error('Richiesta Duffel non valida.');
+  const origin = String(input.originIata || input.origin || '').trim().toUpperCase();
+  const destination = String(input.destinationIata || input.destination || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(origin) || !/^[A-Z]{3}$/.test(destination)) {
+    throw new Error('Duffel richiede aeroporti IATA precisi.');
+  }
+  if (!isIsoDate(input.departureDate)) throw new Error('Data di partenza Duffel non valida.');
+  if (input.returnDate && !isIsoDate(input.returnDate)) throw new Error('Data di ritorno Duffel non valida.');
+  if (input.departureDateTo || input.returnDateTo || Number(input.departureDateFlexDays || 0) || Number(input.returnDateFlexDays || 0)) {
+    throw new Error('Per ora Duffel è attivo solo sulle date precise, per evitare ricerche multiple a pagamento.');
+  }
+}
+
+function duffelCabinClass(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (text === 'business' || text === 'c') return 'business';
+  if (text === 'premium_economy' || text === 'premium economy' || text === 'w') return 'premium_economy';
+  if (text === 'first' || text === 'f') return 'first';
+  return 'economy';
+}
+
+function normalizeDuffelOffer(offer) {
+  if (!offer || !Array.isArray(offer.slices) || !offer.slices.length) return null;
+  const price = Number(offer.total_amount);
+  if (!Number.isFinite(price)) return null;
+
+  const legs = offer.slices.map(normalizeDuffelSlice).filter(Boolean);
+  if (!legs.length) return null;
+
+  const outbound = legs[0];
+  const inbound = legs[1] || null;
+  const totalDurationSeconds = legs.reduce((sum, leg) => sum + Number(leg.durationSeconds || 0), 0);
+  const currency = String(offer.total_currency || 'EUR').toUpperCase();
+  const ownerName = String(offer.owner?.name || '').trim();
+
+  return {
+    source: 'Duffel',
+    providerAirline: ownerName || null,
+    price,
+    priceFormatted: new Intl.NumberFormat('it-IT', { style: 'currency', currency }).format(price),
+    totalDurationSeconds,
+    baggage: {},
+    bookingUrl: null,
+    duffelOfferId: offer.id || null,
+    duffelExpiresAt: offer.expires_at || null,
+    outbound,
+    inbound
+  };
+}
+
+function normalizeDuffelSlice(slice) {
+  const rawSegments = Array.isArray(slice?.segments) ? slice.segments : [];
+  if (!rawSegments.length) return null;
+  const segments = rawSegments.map(normalizeDuffelSegment).filter(Boolean);
+  if (!segments.length) return null;
+
+  const departureTime = segments[0].departureTime;
+  const arrivalTime = segments[segments.length - 1].arrivalTime;
+  const durationSeconds = secondsBetween(departureTime, arrivalTime);
+
+  return {
+    route: [segments[0].from, ...segments.map(segment => segment.to)],
+    stops: Math.max(0, segments.length - 1),
+    durationSeconds,
+    departureTime,
+    arrivalTime,
+    segments
+  };
+}
+
+function normalizeDuffelSegment(segment) {
+  const from = String(segment?.origin?.iata_code || '').trim().toUpperCase();
+  const to = String(segment?.destination?.iata_code || '').trim().toUpperCase();
+  const departureTime = String(segment?.departing_at || '').trim();
+  const arrivalTime = String(segment?.arriving_at || '').trim();
+  if (!/^[A-Z]{3}$/.test(from) || !/^[A-Z]{3}$/.test(to) || !departureTime || !arrivalTime) return null;
+
+  const operating = segment?.operating_carrier || {};
+  const marketing = segment?.marketing_carrier || {};
+  const carrier = String(operating?.iata_code || marketing?.iata_code || '').trim().toUpperCase();
+  const carrierName = String(operating?.name || marketing?.name || carrier || 'Compagnia').trim();
+  const marketingCode = String(marketing?.iata_code || carrier || '').trim().toUpperCase();
+  const number = String(segment?.marketing_carrier_flight_number || '').trim();
+  const flightNumber = number
+    ? `${marketingCode}${number}`
+    : String(segment?.id || '').trim();
+
+  return {
+    carrier,
+    carrierName,
+    flightNumber,
+    from,
+    to,
+    fromCity: String(segment?.origin?.city_name || segment?.origin?.name || from).trim(),
+    toCity: String(segment?.destination?.city_name || segment?.destination?.name || to).trim(),
+    fromCountry: normalizeCountryCodeForPolicy(segment?.origin?.iata_country_code || segment?.origin?.country_code),
+    toCountry: normalizeCountryCodeForPolicy(segment?.destination?.iata_country_code || segment?.destination?.country_code),
+    fromName: String(segment?.origin?.name || '').trim(),
+    toName: String(segment?.destination?.name || '').trim(),
+    departureTime,
+    arrivalTime,
+    durationSeconds: secondsBetween(departureTime, arrivalTime)
+  };
+}
+
+function secondsBetween(from, to) {
+  const start = new Date(String(from || '')).getTime();
+  const end = new Date(String(to || '')).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return Math.round((end - start) / 1000);
+}
+
+function duffelMatchesPolicies(item, input) {
+  const excludedAirlines = new Set(
+    (Array.isArray(input.excludeAirlines) ? input.excludeAirlines : [])
+      .map(code => String(code || '').trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const excludedCountries = new Set(
+    (Array.isArray(input.excludeStopoverCountries) ? input.excludeStopoverCountries : [])
+      .map(normalizeCountryCodeForPolicy)
+      .filter(Boolean)
+  );
+
+  const allSegments = [
+    ...(item?.outbound?.segments || []),
+    ...(item?.inbound?.segments || [])
+  ];
+  if (excludedAirlines.size && allSegments.some(segment => excludedAirlines.has(String(segment?.carrier || '').trim().toUpperCase()))) {
+    return false;
+  }
+
+  if (excludedCountries.size) {
+    for (const leg of [item?.outbound, item?.inbound]) {
+      const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+      if (segments.slice(0, -1).some(segment => excludedCountries.has(normalizeCountryCodeForPolicy(segment?.toCountry)))) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 
