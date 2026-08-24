@@ -1,5 +1,6 @@
 const KIWI_MCP_URL = 'https://mcp.kiwi.com';
 const RYANAIR_FINDER_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/search';
+const RYANAIR_AIRPORTS_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/airports';
 const ALLOWED_ORIGINS = new Set([
   'https://ibnkhaldoun-svg.github.io',
   'http://localhost:3000',
@@ -43,6 +44,31 @@ export default {
       }
     }
 
+    if (url.pathname === '/airports' && request.method === 'GET') {
+      try {
+        enforceAllowedOrigin(request);
+        const codes = (url.searchParams.get('codes') || '')
+          .split(',')
+          .map(code => code.trim().toUpperCase())
+          .filter(code => /^[A-Z]{3}$/.test(code))
+          .slice(0, 50);
+        if (!codes.length) return json({ ok: true, airports: [] }, 200, cors);
+
+        const upstream = new URL(RYANAIR_AIRPORTS_URL);
+        upstream.searchParams.set('codes', codes.join(','));
+        const response = await fetch(upstream.toString(), {
+          headers: { 'Accept': 'application/json' }
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data || !Array.isArray(data.airports)) {
+          throw new Error(`Airport metadata HTTP ${response.status}`);
+        }
+        return json({ ok: true, airports: data.airports }, 200, cors);
+      } catch (error) {
+        return json({ ok: false, error: safeError(error) }, 502, cors);
+      }
+    }
+
     if (url.pathname === '/ryanair-compare' && request.method === 'POST') {
       try {
         enforceAllowedOrigin(request);
@@ -54,7 +80,7 @@ export default {
       }
     }
 
-    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'POST /search', 'POST /ryanair-compare'] }, 404, cors);
+    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /ryanair-compare'] }, 404, cors);
   }
 };
 
