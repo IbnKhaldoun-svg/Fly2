@@ -654,12 +654,51 @@
   function applyLocalPolicies(items) {
     const outSame = $('input[name="outSegmentCarrier"]:checked')?.value === 'same';
     const inSame = $('input[name="inSegmentCarrier"]:checked')?.value === 'same';
+    const excludedStopoverCountries = new Set(
+      readTags('#avoidCountryChips')
+        .map(name => normalizePolicyCountryCode(countryCodes[name] || name))
+        .filter(Boolean)
+    );
+
     const filtered = items.filter(item => {
       if (outSame && !sameCarrier(item.outbound?.segments)) return false;
       if (inSame && item.inbound && !sameCarrier(item.inbound?.segments)) return false;
+      if (excludedStopoverCountries.size && itineraryUsesExcludedStopoverCountry(item, excludedStopoverCountries)) return false;
       return true;
     });
     return filtered.sort(defaultCompare);
+  }
+
+  function normalizePolicyCountryCode(value) {
+    const code = String(value || '').trim().toUpperCase();
+    if (code === 'UK') return 'GB';
+    return /^[A-Z]{2}$/.test(code) ? code : '';
+  }
+
+  function segmentDestinationCountryCode(segment) {
+    return normalizePolicyCountryCode(
+      segment?.toCountry ||
+      segment?.destinationCountryCode ||
+      segment?.destination?.countryCode ||
+      segment?.destination?.country?.code ||
+      segment?.to?.countryCode ||
+      segment?.to?.country?.code
+    );
+  }
+
+  function legUsesExcludedStopoverCountry(leg, excludedCountries) {
+    const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+    if (segments.length <= 1) return false;
+
+    return segments.slice(0, -1).some(segment => {
+      const countryCode = segmentDestinationCountryCode(segment);
+      return countryCode && excludedCountries.has(countryCode);
+    });
+  }
+
+  function itineraryUsesExcludedStopoverCountry(item, excludedCountries) {
+    return legUsesExcludedStopoverCountry(item?.outbound, excludedCountries) ||
+      legUsesExcludedStopoverCountry(item?.inbound, excludedCountries);
   }
 
   function sameCarrier(segments = []) {
