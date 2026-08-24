@@ -2,6 +2,8 @@
   const API_URL = 'https://fly2-api.fly2-search.workers.dev/search';
   const nativeFetch = window.fetch.bind(window);
   let latestItineraries = [];
+  const officialBookingStore = new Map();
+  const officialBookingModal = createOfficialBookingModal();
 
   const officialAirlineSites = {
     FR: 'https://www.ryanair.com/',
@@ -94,19 +96,162 @@
     const kiwi = foot.querySelector('.book-link:not(.disabled)');
     if (kiwi) kiwi.textContent = 'Prenota con Kiwi ↗';
 
-    const airlines = uniqueAirlines(item);
-    const links = airlines
-      .filter(airline => officialAirlineSites[airline.code])
-      .map(airline => `<a class="airline-official-link" href="${escapeAttr(officialAirlineSites[airline.code])}" target="_blank" rel="noopener noreferrer">Sito ufficiale ${escapeHtml(airline.name)} ↗</a>`)
-      .join('');
+    const segments = allSegments(item);
+    const allRyanair = segments.length > 0 && segments.every(segment => segment?.carrier === 'FR');
 
-    if (links) {
-      const wrap = document.createElement('div');
-      wrap.className = 'official-airline-links';
-      wrap.innerHTML = links;
-      if (kiwi) foot.insertBefore(wrap, kiwi);
-      else foot.appendChild(wrap);
+    if (!allRyanair && segments.some(segment => officialAirlineSites[segment?.carrier])) {
+      const key = itinerarySignature(item) || String(Math.random());
+      officialBookingStore.set(key, item);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'official-booking-button';
+      button.dataset.officialBookingKey = key;
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.textContent = 'Prenota sui siti ufficiali ↗';
+
+      if (kiwi) foot.insertBefore(button, kiwi);
+      else foot.appendChild(button);
     }
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('.official-booking-button[data-official-booking-key]');
+    if (!button) return;
+    event.preventDefault();
+    const item = officialBookingStore.get(button.dataset.officialBookingKey);
+    if (item) openOfficialBookingModal(item);
+  }, true);
+
+  function allSegments(item) {
+    return [...(item.outbound?.segments || []), ...(item.inbound?.segments || [])];
+  }
+
+  function createOfficialBookingModal() {
+    const modal = document.createElement('div');
+    modal.className = 'official-booking-modal hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="official-booking-backdrop" data-official-close></div>
+      <section class="official-booking-dialog" role="dialog" aria-modal="true" aria-labelledby="officialBookingTitle">
+        <div class="official-booking-head">
+          <div>
+            <span class="official-booking-kicker">Prenotazione diretta</span>
+            <h2 id="officialBookingTitle">Prenota sui siti ufficiali</h2>
+          </div>
+          <button type="button" class="official-booking-close" data-official-close aria-label="Chiudi">×</button>
+        </div>
+        <p class="official-booking-intro">Ogni tratta viene aperta sul sito ufficiale della compagnia. Per Ryanair Fly2 precompila rotta, data e passeggeri; per le altre compagnie, quando non esiste un deep-link stabile, si apre il sito ufficiale.</p>
+        <div class="official-booking-list"></div>
+      </section>`;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', event => {
+      if (event.target.closest('[data-official-close]')) closeOfficialBookingModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeOfficialBookingModal();
+    });
+
+    return modal;
+  }
+
+  function openOfficialBookingModal(item) {
+    const list = officialBookingModal.querySelector('.official-booking-list');
+    if (!list) return;
+
+    const outboundCount = item.outbound?.segments?.length || 0;
+    const passengers = readPassengers();
+    const segments = allSegments(item);
+
+    list.innerHTML = segments.map((segment, index) => {
+      const carrier = segment?.carrier || '';
+      const airline = segment?.carrierName || carrier || 'Compagnia';
+      const official = officialAirlineSites[carrier];
+      const prefilled = carrier === 'FR';
+      const href = prefilled
+        ? buildRyanairUrl(segment?.from, segment?.to, segment?.departureTime, passengers)
+        : official;
+
+      if (!href) return '';
+
+      const direction = index < outboundCount ? 'Andata' : 'Ritorno';
+      const fromCity = segment?.fromCity || segment?.from || '';
+      const toCity = segment?.toCity || segment?.to || '';
+      const route = `${fromCity} (${segment?.from || ''}) → ${toCity} (${segment?.to || ''})`;
+      const when = formatSegmentDateTime(segment?.departureTime);
+
+      return `
+        <article class="official-booking-row">
+          <div class="official-booking-step">${index + 1}</div>
+          <div class="official-booking-route">
+            <span class="official-booking-direction">${escapeHtml(direction)} · ${escapeHtml(airline)}</span>
+            <strong>${escapeHtml(route)}</strong>
+            <span>${escapeHtml(segment?.flightNumber || '')}${when ? ` · ${escapeHtml(when)}` : ''}</span>
+            <small>${prefilled ? 'Rotta, data e passeggeri già impostati' : 'Apre il sito ufficiale; la ricerca potrebbe dover essere compilata'}</small>
+          </div>
+          <a class="official-open-link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">
+            ${prefilled ? 'Apri già impostato ↗' : 'Apri sito ufficiale ↗'}
+          </a>
+        </article>`;
+    }).join('');
+
+    officialBookingModal.classList.remove('hidden');
+    officialBookingModal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('official-modal-open');
+    officialBookingModal.querySelector('.official-booking-close')?.focus();
+  }
+
+  function closeOfficialBookingModal() {
+    officialBookingModal.classList.add('hidden');
+    officialBookingModal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('official-modal-open');
+  }
+
+  function readPassengers() {
+    const count = (id, fallback) => Number(document.querySelector('#count-' + id)?.textContent || fallback);
+    return {
+      adults: count('adults', 1),
+      children: count('children', 0),
+      infants: count('infantsSeat', 0) + count('infantsLap', 0),
+      teens: 0
+    };
+  }
+
+  function buildRyanairUrl(origin, destination, departureAt, passengers) {
+    const dateOut = String(departureAt || '').slice(0, 10);
+    const params = new URLSearchParams({
+      adults: String(passengers.adults || 1),
+      teens: String(passengers.teens || 0),
+      children: String(passengers.children || 0),
+      infants: String(passengers.infants || 0),
+      dateOut,
+      dateIn: '',
+      isConnectedFlight: 'false',
+      discount: '0',
+      promoCode: '',
+      originIata: origin || '',
+      destinationIata: destination || '',
+      tpAdults: String(passengers.adults || 1),
+      tpTeens: String(passengers.teens || 0),
+      tpChildren: String(passengers.children || 0),
+      tpInfants: String(passengers.infants || 0),
+      tpStartDate: dateOut,
+      tpEndDate: '',
+      tpDiscount: '0',
+      tpPromoCode: '',
+      tpOriginIata: origin || '',
+      tpDestinationIata: destination || ''
+    });
+    return `https://www.ryanair.com/it/it/trip/flights/select?${params.toString()}`;
+  }
+
+  function formatSegmentDateTime(value) {
+    if (!value) return '';
+    const text = String(value);
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
+    if (!match) return text.slice(0, 16);
+    return `${match[3]}/${match[2]}/${match[1]} · ${match[4]}`;
   }
 
   function enhanceLeg(root, leg) {
