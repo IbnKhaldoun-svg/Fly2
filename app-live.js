@@ -374,11 +374,13 @@
     if (!leg) return '';
     const route = formatLegRoute(leg);
     const segments = (leg.segments || []).map(renderSegment).join('');
+    const longLayovers = renderLongLayovers(leg);
     const stopsText = leg.stops === 0 ? 'Diretto' : `${leg.stops} ${leg.stops === 1 ? 'scalo' : 'scali'}`;
     return `<section class="flight-leg">
       <div class="flight-leg-title"><strong>${label}</strong><span>${esc(route)}</span><span>${esc(stopsText)} · ${duration(leg.durationSeconds)}</span></div>
       <div class="flight-times"><strong>${dateTime(leg.departureTime)}</strong><span>→</span><strong>${dateTime(leg.arrivalTime)}</strong></div>
       <div class="flight-segments">${segments}</div>
+      ${longLayovers}
     </section>`;
   }
 
@@ -388,6 +390,75 @@
     const rawFlight = String(segment.flightNumber || '').trim();
     const flightNumber = norm(rawFlight) === norm(carrierName) || norm(rawFlight) === norm(segment.carrier) ? '' : rawFlight;
     return `<div class="flight-segment"><div><strong>${esc(carrierName)}</strong>${flightNumber ? `<span>${esc(flightNumber)}</span>` : ''}</div><div><span>${esc(segment.from || '')} ${shortTime(segment.departureTime)}</span><span>→</span><span>${esc(segment.to || '')} ${shortTime(segment.arrivalTime)}</span></div>${layover ? `<small>${esc(layover)}</small>` : ''}</div>`;
+  }
+
+  function renderLongLayovers(leg) {
+    const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+    if (segments.length < 2) return '';
+
+    return segments.slice(0, -1).map((segment, index) => {
+      const next = segments[index + 1];
+      const minutes = layoverMinutes(segment?.arrivalTime, next?.departureTime);
+      if (!Number.isFinite(minutes) || minutes < 360) return '';
+
+      const city = segment?.toCity || next?.fromCity || segment?.to || 'città dello scalo';
+      const code = segment?.to || next?.from || '';
+      const airportName = segment?.toName || next?.fromName || '';
+      const airportQuery = airportName
+        ? `${airportName} ${code}`
+        : `${city} ${code} airport`;
+      const centerQuery = `${city} city center`;
+
+      const directionsUrl = googleMapsDirections(airportQuery, centerQuery);
+      const thingsUrl = googleMapsSearch(`${city} attractions things to do`);
+      const foodUrl = googleMapsSearch(`${city} restaurants city center`);
+
+      return `
+        <aside class="long-layover-card">
+          <div class="long-layover-head">
+            <div>
+              <span class="long-layover-kicker">Scalo lungo</span>
+              <strong>${esc(city)}${code ? ` (${esc(code)})` : ''} · ${esc(minutesToHuman(minutes))}</strong>
+            </div>
+            <span class="long-layover-window">${esc(shortTime(segment?.arrivalTime))} → ${esc(shortTime(next?.departureTime))}</span>
+          </div>
+          <p>Hai abbastanza tempo per valutare un'uscita dall'aeroporto. Prima di uscire verifica requisiti di ingresso/transito e considera il tempo necessario per rientrare, rifare i controlli e raggiungere il gate.</p>
+          <div class="long-layover-actions">
+            <a href="${escAttr(directionsUrl)}" target="_blank" rel="noopener noreferrer">Come raggiungere il centro ↗</a>
+            <a href="${escAttr(thingsUrl)}" target="_blank" rel="noopener noreferrer">Cosa vedere e fare ↗</a>
+            <a href="${escAttr(foodUrl)}" target="_blank" rel="noopener noreferrer">Dove mangiare ↗</a>
+          </div>
+        </aside>`;
+    }).join('');
+  }
+
+  function layoverMinutes(arrival, departure) {
+    if (!arrival || !departure) return NaN;
+    const a = new Date(arrival);
+    const b = new Date(departure);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return NaN;
+    return Math.round((b - a) / 60000);
+  }
+
+  function minutesToHuman(minutes) {
+    const h = Math.floor(minutes / 60);
+    const m = Math.max(0, minutes % 60);
+    return m ? `${h}h ${String(m).padStart(2, '0')}m` : `${h}h`;
+  }
+
+  function googleMapsDirections(origin, destination) {
+    const params = new URLSearchParams({
+      api: '1',
+      origin,
+      destination,
+      travelmode: 'transit'
+    });
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  }
+
+  function googleMapsSearch(query) {
+    const params = new URLSearchParams({ api: '1', query });
+    return `https://www.google.com/maps/search/?${params.toString()}`;
   }
 
   function formatLegRoute(leg) {
