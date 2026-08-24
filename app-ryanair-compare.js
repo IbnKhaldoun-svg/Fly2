@@ -116,16 +116,20 @@
       return;
     }
 
-    if (!isExactSearch(request)) return;
+    if (!isSelectedDateSearch(request)) return;
 
     const ryanairItems = items.filter(allRyanair);
-    if (!ryanairItems.length) return;
 
     const payload = {
+      searchMode: request.searchMode || undefined,
       originIata: firstOut.from,
       destinationIata: lastOut.to,
       departureDate: request.departureDate,
+      departureDateTo: request.departureDateTo || null,
+      departureDateFlexDays: request.departureDateFlexDays || 0,
       returnDate: request.returnDate || null,
+      returnDateTo: request.returnDateTo || null,
+      returnDateFlexDays: request.returnDateFlexDays || 0,
       adults: request.adults || 1,
       children: request.children || 0,
       infants: request.infants || 0,
@@ -144,6 +148,15 @@
 
     const directItems = data.itineraries
       .filter(item => Number.isFinite(Number(item?.totalPrice)));
+
+    const external = directItems
+      .map(item => item?.fly2Itinerary)
+      .filter(item => item && Number.isFinite(Number(item.price)));
+
+    if (external.length) {
+      latestKiwiItems = [...latestKiwiItems, ...external];
+      window.fly2LiveResultsApi?.mergeExternalResults?.(external);
+    }
 
     const directByRouteTime = new Map(
       directItems.map(item => [directRouteTimeSignature(item), item])
@@ -175,11 +188,17 @@
       (request?.departureDateTo && request?.nightsFrom && request?.nightsTo);
   }
 
-  function isExactSearch(request) {
+  function isSelectedDateSearch(request) {
     if (!request?.departureDate) return false;
+    if (isCheapestSearch(request)) return false;
+    if (request.nightsFrom || request.nightsTo || request.flyDays || request.returnFlyDays) return false;
+    return true;
+  }
+
+  function isExactSearch(request) {
+    if (!isSelectedDateSearch(request)) return false;
     if (request.departureDateTo || request.departureDateFlexDays) return false;
     if (request.returnDateTo || request.returnDateFlexDays) return false;
-    if (request.nightsFrom || request.nightsTo || request.flyDays || request.returnFlyDays) return false;
     return true;
   }
 
