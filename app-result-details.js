@@ -76,9 +76,9 @@
       if (sig && !bySignature.has(sig)) bySignature.set(sig, item);
     });
 
-    cards.forEach((card, index) => {
+    cards.forEach(card => {
       if (card.dataset.fly2Details === 'true') return;
-      const item = bySignature.get(cardSignature(card)) || latestItineraries[index];
+      const item = bySignature.get(cardSignature(card));
       if (!item) return;
       enhanceCard(card, item);
       card.dataset.fly2Details = 'true';
@@ -89,34 +89,10 @@
     const legs = [...card.querySelectorAll('.flight-leg')];
     if (legs[0] && item.outbound) enhanceLeg(legs[0], item.outbound);
     if (legs[1] && item.inbound) enhanceLeg(legs[1], item.inbound);
-
-    const foot = card.querySelector('.flight-foot');
-    if (!foot) return;
-
-    const kiwi = foot.querySelector('.book-link:not(.disabled)');
-    if (kiwi) kiwi.textContent = 'Prenota con Kiwi ↗';
-
-    const segments = allSegments(item);
-    const allRyanair = segments.length > 0 && segments.every(segment => segment?.carrier === 'FR');
-
-    if (!allRyanair && segments.some(segment => officialAirlineSites[segment?.carrier])) {
-      const key = itinerarySignature(item) || String(Math.random());
-      officialBookingStore.set(key, item);
-
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'official-booking-button';
-      button.dataset.officialBookingKey = key;
-      button.setAttribute('aria-haspopup', 'dialog');
-      button.textContent = 'Prenota sui siti ufficiali ↗';
-
-      if (kiwi) foot.insertBefore(button, kiwi);
-      else foot.appendChild(button);
-    }
   }
 
   document.addEventListener('click', event => {
-    const button = event.target.closest?.('.official-booking-button[data-official-booking-key]');
+    const button = event.target.closest?.('.official-booking-button-legacy[data-official-booking-key]');
     if (!button) return;
     event.preventDefault();
     const item = officialBookingStore.get(button.dataset.officialBookingKey);
