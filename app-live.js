@@ -19,13 +19,36 @@
     'Tunisia':'TN','Turchia':'TR','Ungheria':'HU'
   };
 
+  const officialAirlineSites = {
+    FR: 'https://www.ryanair.com/',
+    U2: 'https://www.easyjet.com/',
+    W6: 'https://www.wizzair.com/', W4: 'https://www.wizzair.com/', W9: 'https://www.wizzair.com/',
+    VY: 'https://www.vueling.com/', V7: 'https://www.volotea.com/',
+    AZ: 'https://www.ita-airways.com/', LH: 'https://www.lufthansa.com/', LX: 'https://www.swiss.com/',
+    AF: 'https://www.airfrance.com/', KL: 'https://www.klm.com/', IB: 'https://www.iberia.com/',
+    BA: 'https://www.britishairways.com/', TP: 'https://www.flytap.com/', TK: 'https://www.turkishairlines.com/',
+    AT: 'https://www.royalairmaroc.com/it-it/booking/book-a-flight',
+    HV: 'https://www.transavia.com/', EW: 'https://www.eurowings.com/', OS: 'https://www.austrian.com/',
+    DY: 'https://www.norwegian.com/', PC: 'https://www.flypgs.com/', SN: 'https://www.brusselsairlines.com/'
+  };
+
   let liveResults = [];
   let preferredCodes = [];
+  const bookingStore = new Map();
+  const bookingModal = createUnifiedBookingModal();
 
   const button = $('#searchButton');
   if (!button) return;
   button.addEventListener('click', handleSearch, { capture: true });
   $('#resultSort')?.addEventListener('change', renderSorted);
+
+  document.addEventListener('click', event => {
+    const bookingButton = event.target.closest?.('.unified-booking-button[data-booking-key]');
+    if (!bookingButton) return;
+    event.preventDefault();
+    const item = bookingStore.get(bookingButton.dataset.bookingKey);
+    if (item) openUnifiedBookingModal(item);
+  }, true);
 
   async function handleSearch(event) {
     event.preventDefault();
@@ -44,7 +67,14 @@
       const result = data.result;
       if (!result || !Array.isArray(result.itineraries)) throw new Error('Kiwi non ha restituito un elenco di itinerari valido.');
 
-      liveResults = applyLocalPolicies(result.itineraries.filter(item => !isHiddenCityItinerary(item)));
+      const kiwiItems = result.itineraries
+        .filter(item => !isHiddenCityItinerary(item))
+        .map(item => ({
+          ...item,
+          source: item?.source || 'Kiwi',
+          kiwiBookingUrl: item?.kiwiBookingUrl || item?.bookingUrl || null
+        }));
+      liveResults = applyLocalPolicies(kiwiItems);
       if (!liveResults.length) {
         showMessage('Nessun volo compatibile', 'Kiwi ha risposto correttamente, ma nessun itinerario rispetta tutti i filtri selezionati.');
         return;
@@ -236,15 +266,30 @@
     const byKey = new Map();
     [...liveResults, ...incoming].forEach(item => {
       const key = itineraryMergeKey(item) || JSON.stringify(item);
+      const normalized = {
+        ...item,
+        kiwiBookingUrl:
+          item?.kiwiBookingUrl ||
+          (item?.source === 'Kiwi' ? item?.bookingUrl : null) ||
+          null
+      };
       const existing = byKey.get(key);
       if (!existing) {
-        byKey.set(key, item);
+        byKey.set(key, normalized);
         return;
       }
 
       const existingPrice = effectivePrice(existing);
-      const incomingPrice = effectivePrice(item);
-      if (incomingPrice < existingPrice) byKey.set(key, item);
+      const incomingPrice = effectivePrice(normalized);
+      const winner = incomingPrice < existingPrice ? normalized : existing;
+      const kiwiBookingUrl =
+        existing?.kiwiBookingUrl ||
+        (existing?.source === 'Kiwi' ? existing?.bookingUrl : null) ||
+        normalized?.kiwiBookingUrl ||
+        (normalized?.source === 'Kiwi' ? normalized?.bookingUrl : null) ||
+        null;
+
+      byKey.set(key, { ...winner, kiwiBookingUrl });
     });
 
     liveResults = applyLocalPolicies([...byKey.values()]);
@@ -307,20 +352,27 @@
       baggage.cabinBag ? `${baggage.cabinBag} bagaglio a mano` : null,
       baggage.checkedBag ? `${baggage.checkedBag} bagaglio in stiva` : null
     ].filter(Boolean).join(' · ') || 'Bagaglio incluso non indicato';
-    return `<article class="flight-card">
+
+    const bookingKey = itineraryMergeKey(item) || `booking-${index}-${Date.now()}`;
+    bookingStore.set(bookingKey, item);
+
+    return `<article class="flight-card" data-itinerary-key="${escAttr(bookingKey)}">
       <div class="flight-card-head">
         <div><span class="flight-rank">${index === 0 ? 'Prima opzione' : `Opzione ${index + 1}`}</span><span class="flight-source">${esc(item.source || 'Kiwi')}</span><strong class="flight-price">${esc(item.priceFormatted || (item.price != null ? `${item.price} EUR` : 'Prezzo non disponibile'))}</strong></div>
         <div class="flight-total">Durata totale <strong>${duration(item.totalDurationSeconds)}</strong></div>
       </div>
       ${renderLeg('Andata', item.outbound)}
       ${item.inbound ? renderLeg('Ritorno', item.inbound) : ''}
-      <div class="flight-foot"><span>${esc(bagText)}</span>${item.bookingUrl ? `<a class="book-link" href="${escAttr(item.bookingUrl)}" target="_blank" rel="noopener noreferrer">Vai alla prenotazione ↗</a>` : '<span class="book-link disabled">Link non disponibile</span>'}</div>
+      <div class="flight-foot">
+        <span>${esc(bagText)}</span>
+        <button type="button" class="unified-booking-button" data-booking-key="${escAttr(bookingKey)}">Prenota <span aria-hidden="true">↗</span></button>
+      </div>
     </article>`;
   }
 
   function renderLeg(label, leg) {
     if (!leg) return '';
-    const route = (leg.route || []).join(' → ');
+    const route = formatLegRoute(leg);
     const segments = (leg.segments || []).map(renderSegment).join('');
     const stopsText = leg.stops === 0 ? 'Diretto' : `${leg.stops} ${leg.stops === 1 ? 'scalo' : 'scali'}`;
     return `<section class="flight-leg">
@@ -332,7 +384,170 @@
 
   function renderSegment(segment, index, all) {
     const layover = index < all.length - 1 ? layoverText(segment.arrivalTime, all[index + 1]?.departureTime, segment.to) : '';
-    return `<div class="flight-segment"><div><strong>${esc(segment.carrierName || segment.carrier || 'Compagnia')}</strong><span>${esc(segment.flightNumber || '')}</span></div><div><span>${esc(segment.from || '')} ${shortTime(segment.departureTime)}</span><span>→</span><span>${esc(segment.to || '')} ${shortTime(segment.arrivalTime)}</span></div>${layover ? `<small>${esc(layover)}</small>` : ''}</div>`;
+    const carrierName = segment.carrierName || segment.carrier || 'Compagnia';
+    const rawFlight = String(segment.flightNumber || '').trim();
+    const flightNumber = norm(rawFlight) === norm(carrierName) || norm(rawFlight) === norm(segment.carrier) ? '' : rawFlight;
+    return `<div class="flight-segment"><div><strong>${esc(carrierName)}</strong>${flightNumber ? `<span>${esc(flightNumber)}</span>` : ''}</div><div><span>${esc(segment.from || '')} ${shortTime(segment.departureTime)}</span><span>→</span><span>${esc(segment.to || '')} ${shortTime(segment.arrivalTime)}</span></div>${layover ? `<small>${esc(layover)}</small>` : ''}</div>`;
+  }
+
+  function formatLegRoute(leg) {
+    const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+    if (!segments.length) return (leg?.route || []).join(' → ');
+
+    const points = segments.map(segment => ({
+      city: segment?.fromCity || segment?.from,
+      code: segment?.from,
+      country: shortCountry(segment?.fromCountry)
+    }));
+    const last = segments[segments.length - 1];
+    points.push({
+      city: last?.toCity || last?.to,
+      code: last?.to,
+      country: shortCountry(last?.toCountry)
+    });
+
+    return points.map(point => {
+      const city = point.city || point.code || '—';
+      const code = point.code && point.code !== city ? ` (${point.code})` : '';
+      const country = point.country ? `, ${point.country}` : '';
+      return `${city}${code}${country}`;
+    }).join(' → ');
+  }
+
+  function shortCountry(value) {
+    const text = String(value || '').trim();
+    if (/^[A-Z]{2}$/i.test(text)) return text.toUpperCase();
+    const map = {
+      Italy: 'IT', Italia: 'IT', Spain: 'ES', Spagna: 'ES', France: 'FR', Francia: 'FR',
+      Morocco: 'MA', Marocco: 'MA', Poland: 'PL', Polonia: 'PL', Germany: 'DE', Germania: 'DE',
+      'United Kingdom': 'GB', 'Regno Unito': 'GB', Portugal: 'PT', Portogallo: 'PT',
+      Austria: 'AT', Switzerland: 'CH', Svizzera: 'CH', Netherlands: 'NL', 'Paesi Bassi': 'NL',
+      Belgium: 'BE', Belgio: 'BE', Greece: 'GR', Grecia: 'GR', Turkey: 'TR', Turchia: 'TR'
+    };
+    return map[text] || '';
+  }
+
+  function createUnifiedBookingModal() {
+    const modal = document.createElement('div');
+    modal.className = 'unified-booking-modal hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="unified-booking-backdrop" data-unified-close></div>
+      <section class="unified-booking-dialog" role="dialog" aria-modal="true" aria-labelledby="unifiedBookingTitle">
+        <div class="unified-booking-head">
+          <div>
+            <span class="unified-booking-kicker">Prenotazione</span>
+            <h2 id="unifiedBookingTitle">Scegli dove prenotare</h2>
+          </div>
+          <button type="button" class="unified-booking-close" data-unified-close aria-label="Chiudi">×</button>
+        </div>
+        <p class="unified-booking-intro">Per ogni tratta puoi aprire il sito ufficiale della compagnia oppure Kiwi. Quando Fly2 dispone di un deep-link verificato, rotta, data e passeggeri vengono già impostati.</p>
+        <div class="unified-booking-list"></div>
+      </section>`;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', event => {
+      if (event.target.closest('[data-unified-close]')) closeUnifiedBookingModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeUnifiedBookingModal();
+    });
+    return modal;
+  }
+
+  function openUnifiedBookingModal(item) {
+    const list = $('.unified-booking-list', bookingModal);
+    if (!list) return;
+
+    const passengers = readPassengers();
+    const outbound = item?.outbound?.segments || [];
+    const inbound = item?.inbound?.segments || [];
+    const segments = [...outbound, ...inbound];
+    const kiwiUrl =
+      item?.kiwiBookingUrl ||
+      (item?.source === 'Kiwi' ? item?.bookingUrl : null) ||
+      null;
+
+    list.innerHTML = segments.map((segment, index) => {
+      const carrier = String(segment?.carrier || '').trim().toUpperCase();
+      const airline = segment?.carrierName || carrier || 'Compagnia';
+      const officialHome = officialAirlineSites[carrier] || null;
+      const officialUrl = carrier === 'FR'
+        ? buildRyanairBookingUrl(segment, passengers)
+        : officialHome;
+      const officialPrefilled = carrier === 'FR';
+      const direction = index < outbound.length ? 'Andata' : 'Ritorno';
+      const fromCity = segment?.fromCity || segment?.from || '';
+      const toCity = segment?.toCity || segment?.to || '';
+      const route = `${fromCity} (${segment?.from || ''}) → ${toCity} (${segment?.to || ''})`;
+      const when = formatBookingDateTime(segment?.departureTime);
+      const rawFlight = String(segment?.flightNumber || '').trim();
+      const flight = norm(rawFlight) === norm(airline) ? '' : rawFlight;
+
+      return `
+        <article class="unified-booking-row">
+          <div class="unified-booking-step">${index + 1}</div>
+          <div class="unified-booking-route">
+            <span class="unified-booking-direction">${esc(direction)} · ${esc(airline)}</span>
+            <strong>${esc(route)}</strong>
+            <span>${flight ? esc(flight) + ' · ' : ''}${esc(when)}</span>
+          </div>
+          <div class="unified-booking-actions">
+            ${officialUrl
+              ? `<a class="unified-booking-action official" href="${escAttr(officialUrl)}" target="_blank" rel="noopener noreferrer">${officialPrefilled ? 'Compagnia · già impostato' : 'Sito compagnia'} ↗</a>`
+              : '<span class="unified-booking-action disabled">Compagnia non disponibile</span>'}
+            ${kiwiUrl
+              ? `<a class="unified-booking-action kiwi" href="${escAttr(kiwiUrl)}" target="_blank" rel="noopener noreferrer">Kiwi ↗</a>`
+              : '<span class="unified-booking-action disabled">Kiwi non disponibile</span>'}
+          </div>
+        </article>`;
+    }).join('');
+
+    bookingModal.classList.remove('hidden');
+    bookingModal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('unified-modal-open');
+    $('.unified-booking-close', bookingModal)?.focus();
+  }
+
+  function closeUnifiedBookingModal() {
+    bookingModal.classList.add('hidden');
+    bookingModal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('unified-modal-open');
+  }
+
+  function buildRyanairBookingUrl(segment, passengers) {
+    const dateOut = String(segment?.departureTime || '').slice(0, 10);
+    const adults = String(passengers.adults || 1);
+    const children = String(passengers.children || 0);
+    const infants = String(passengers.infants || 0);
+    const teens = '0';
+    const params = new URLSearchParams({
+      adults, teens, children, infants,
+      dateOut,
+      dateIn: '',
+      isConnectedFlight: 'false',
+      discount: '0',
+      promoCode: '',
+      originIata: segment?.from || '',
+      destinationIata: segment?.to || '',
+      tpAdults: adults,
+      tpTeens: teens,
+      tpChildren: children,
+      tpInfants: infants,
+      tpStartDate: dateOut,
+      tpEndDate: '',
+      tpDiscount: '0',
+      tpPromoCode: '',
+      tpOriginIata: segment?.from || '',
+      tpDestinationIata: segment?.to || ''
+    });
+    return `https://www.ryanair.com/it/it/trip/flights/select?${params.toString()}`;
+  }
+
+  function formatBookingDateTime(value) {
+    const text = String(value || '');
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
+    return match ? `${match[3]}/${match[2]}/${match[1]} · ${match[4]}` : text.slice(0, 16);
   }
 
   function showLoading(payload) {
