@@ -1,6 +1,7 @@
 const KIWI_MCP_URL = 'https://mcp.kiwi.com';
 const RYANAIR_FINDER_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/search';
 const RYANAIR_AIRPORTS_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/airports';
+const OURAIRPORTS_COUNTRY_BASE = 'https://ourairports.com/countries';
 const WFP_AIRPORTS_QUERY = 'https://gis.wfp.org/arcgis/rest/services/GLOBAL/GlobalAirports/FeatureServer/0/query';
 const ALLOWED_ORIGINS = new Set([
   'https://ibnkhaldoun-svg.github.io',
@@ -128,8 +129,106 @@ const ISO2_TO_ISO3 = {
 };
 
 async function getCommercialCountryAirports(countryCode, countryName = '') {
+  const ryanairCodesPromise = fetchRyanairCountryAirportCodes(countryName || countryCode);
+
+  // Primary source: the small country-specific OurAirports CSV.
+  // Note: these country CSVs currently encode scheduled_service as 1/0,
+  // while other OurAirports exports/documentation may use yes/no.
+  let ourAirports = [];
+  let ourAirportsError = null;
+  try {
+    ourAirports = await fetchOurAirportsCountryAirports(countryCode);
+  } catch (error) {
+    ourAirportsError = error;
+  }
+
+  const ryanairCodes = await ryanairCodesPromise;
+
+  if (ourAirports.length) {
+    const airports = ourAirports
+      .map(item => ({
+        ...item,
+        ryanair: ryanairCodes.has(item.iataCode)
+      }))
+      .sort((a, b) => a.city.localeCompare(b.city, 'it') || a.iataCode.localeCompare(b.iataCode));
+
+    return {
+      countryCode,
+      countryName: countryName || countryCode,
+      source: 'OurAirports',
+      airports
+    };
+  }
+
+  // Fallback: WFP Global Airports, so a temporary OurAirports issue does not
+  // break country searches completely.
+  let wfpAirports = [];
+  let wfpError = null;
+  try {
+    wfpAirports = await fetchWfpCountryAirports(countryCode, ryanairCodes);
+  } catch (error) {
+    wfpError = error;
+  }
+
+  if (wfpAirports.length) {
+    return {
+      countryCode,
+      countryName: countryName || countryCode,
+      source: 'WFP Global Airports (fallback)',
+      airports: wfpAirports
+    };
+  }
+
+  const details = [
+    ourAirportsError ? `OurAirports: ${safeError(ourAirportsError)}` : 'OurAirports: 0 aeroporti compatibili',
+    wfpError ? `WFP: ${safeError(wfpError)}` : 'WFP: 0 aeroporti compatibili'
+  ].join(' · ');
+  throw new Error(`Non ho trovato aeroporti commerciali con codice IATA per il Paese selezionato. ${details}`);
+}
+
+async function fetchOurAirportsCountryAirports(countryCode) {
+  const csvUrl = `${OURAIRPORTS_COUNTRY_BASE}/${encodeURIComponent(countryCode)}/airports.csv`;
+  const response = await fetch(csvUrl, { headers: { 'Accept': 'text/csv,*/*' } });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const csvText = await response.text();
+  const rows = parseCsvObjects(csvText);
+
+  return rows
+    .map(row => {
+      const iataCode = String(row.iata_code || '').trim().toUpperCase();
+      const type = String(row.type || '').trim().toLowerCase();
+      const name = String(row.name || '').trim();
+      const city = String(row.municipality || '').trim();
+
+      return {
+        iataCode,
+        name: name || `Aeroporto ${iataCode}`,
+        city: city || name || iataCode,
+        countryCode: String(row.iso_country || countryCode).trim().toUpperCase(),
+        type,
+        scheduledService: isScheduledService(row.scheduled_service),
+        latitude: finiteOrNull(row.latitude_deg),
+        longitude: finiteOrNull(row.longitude_deg)
+      };
+    })
+    .filter(item =>
+      /^[A-Z]{3}$/.test(item.iataCode) &&
+      item.scheduledService &&
+      !['closed', 'heliport', 'seaplane_base', 'balloonport'].includes(item.type)
+    );
+}
+
+function isScheduledService(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'yes' || normalized === 'true' || normalized === 'y';
+}
+
+async function fetchWfpCountryAirports(countryCode, ryanairCodes) {
   const iso3 = ISO2_TO_ISO3[countryCode];
-  if (!iso3) throw new Error('Paese non ancora supportato dalla fonte aeroportuale neutrale.');
+  if (!iso3) throw new Error('Paese non supportato dalla fonte WFP.');
 
   const queryUrl = new URL(WFP_AIRPORTS_QUERY);
   queryUrl.searchParams.set('where', `iso3='${iso3}' AND iata IS NOT NULL AND iata<>''`);
@@ -138,14 +237,10 @@ async function getCommercialCountryAirports(countryCode, countryName = '') {
   queryUrl.searchParams.set('resultRecordCount', '2000');
   queryUrl.searchParams.set('f', 'json');
 
-  const [wfpResponse, ryanairCodes] = await Promise.all([
-    fetch(queryUrl.toString(), { headers: { 'Accept': 'application/json' } }),
-    fetchRyanairCountryAirportCodes(countryName || countryCode)
-  ]);
-
-  const data = await wfpResponse.json().catch(() => null);
-  if (!wfpResponse.ok || !data || !Array.isArray(data.features)) {
-    throw new Error(`Elenco aeroporti neutrale non disponibile (HTTP ${wfpResponse.status}).`);
+  const response = await fetch(queryUrl.toString(), { headers: { 'Accept': 'application/json' } });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || !Array.isArray(data.features)) {
+    throw new Error(`HTTP ${response.status}`);
   }
 
   const byIata = new Map();
@@ -156,11 +251,6 @@ async function getCommercialCountryAirports(countryCode, countryName = '') {
     if (!/^[A-Z]{3}$/.test(iataCode)) continue;
 
     const type = String(a.apttype || '').trim();
-    const authority = String(a.authority || '').trim();
-
-    // Manteniamo tutti gli aeroporti con IATA: la successiva ricerca voli
-    // stabilisce se esiste davvero un servizio commerciale utile.
-    // Escludiamo soltanto strutture esplicitamente non aeroportuali.
     if (!['Airport', 'Airfield', 'Airstrip'].includes(type)) continue;
 
     const city = String(a.city || '').trim();
@@ -173,7 +263,7 @@ async function getCommercialCountryAirports(countryCode, countryName = '') {
       countryCode,
       type: type || 'Airport',
       airportClass: String(a.aptclass || '').trim() || null,
-      authority: authority || null,
+      authority: String(a.authority || '').trim() || null,
       status: String(a.status || '').trim() || null,
       scheduledService: true,
       ryanair: ryanairCodes.has(iataCode),
@@ -182,17 +272,65 @@ async function getCommercialCountryAirports(countryCode, countryName = '') {
     });
   }
 
-  const airports = [...byIata.values()]
+  return [...byIata.values()]
     .sort((a, b) => a.city.localeCompare(b.city, 'it') || a.iataCode.localeCompare(b.iataCode));
-
-  return {
-    countryCode,
-    countryName: countryName || countryCode,
-    source: 'WFP Global Airports',
-    airports
-  };
 }
 
+function parseCsvObjects(text) {
+  const rows = parseCsvRows(String(text || ''));
+  if (!rows.length) return [];
+
+  const headers = rows[0].map(value => String(value || '').replace(/^\uFEFF/, '').trim());
+  return rows.slice(1)
+    .filter(row => row.some(value => String(value || '').trim()))
+    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
+}
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          quoted = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',') {
+      row.push(field);
+      field = '';
+    } else if (ch === '\n') {
+      row.push(field.replace(/\r$/, ''));
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+
+  if (field.length || row.length) {
+    row.push(field.replace(/\r$/, ''));
+    rows.push(row);
+  }
+
+  return rows;
+}
 
 async function fetchRyanairCountryAirportCodes(query) {
   try {
