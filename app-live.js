@@ -117,6 +117,9 @@
     const end = new Date(start + 'T12:00:00');
     end.setMonth(end.getMonth() + months);
     const nights = Math.max(1, Math.min(15, Number($('#nights')?.value || 3)));
+    payload.searchMode = 'cheapest';
+    payload.searchHorizonMonths = months;
+    payload.stayNights = nights;
     payload.departureDate = start;
     payload.departureDateTo = iso(end);
     payload.nightsFrom = nights;
@@ -212,6 +215,42 @@
     return [...(item.outbound?.segments || []), ...(item.inbound?.segments || [])].reduce((score, segment) => score + (preferredCodes.includes(segment?.carrier) ? 1 : 0), 0);
   }
 
+  function itineraryMergeKey(item) {
+    return [...(item?.outbound?.segments || []), ...(item?.inbound?.segments || [])]
+      .map(segment => {
+        const from = String(segment?.from || '').trim().toUpperCase();
+        const to = String(segment?.to || '').trim().toUpperCase();
+        const departure = String(segment?.departureTime || '').slice(0, 16);
+        return from && to && departure ? `${from}-${to}@${departure}` : '';
+      })
+      .filter(Boolean)
+      .join('|');
+  }
+
+  function mergeExternalResults(items = []) {
+    if (!Array.isArray(items) || !items.length) return;
+
+    const incoming = items.filter(item => item && !isHiddenCityItinerary(item));
+    if (!incoming.length) return;
+
+    const byKey = new Map();
+    [...liveResults, ...incoming].forEach(item => {
+      const key = itineraryMergeKey(item) || JSON.stringify(item);
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, item);
+        return;
+      }
+
+      const existingPrice = effectivePrice(existing);
+      const incomingPrice = effectivePrice(item);
+      if (incomingPrice < existingPrice) byKey.set(key, item);
+    });
+
+    liveResults = applyLocalPolicies([...byKey.values()]);
+    renderSorted();
+  }
+
   function renderSorted() {
     const mode = $('#resultSort')?.value || 'Predefinito';
     const items = [...liveResults];
@@ -239,7 +278,7 @@
     ].filter(Boolean).join(' · ') || 'Bagaglio incluso non indicato';
     return `<article class="flight-card">
       <div class="flight-card-head">
-        <div><span class="flight-rank">${index === 0 ? 'Prima opzione' : `Opzione ${index + 1}`}</span><strong class="flight-price">${esc(item.priceFormatted || (item.price != null ? `${item.price} EUR` : 'Prezzo non disponibile'))}</strong></div>
+        <div><span class="flight-rank">${index === 0 ? 'Prima opzione' : `Opzione ${index + 1}`}</span><span class="flight-source">${esc(item.source || 'Kiwi')}</span><strong class="flight-price">${esc(item.priceFormatted || (item.price != null ? `${item.price} EUR` : 'Prezzo non disponibile'))}</strong></div>
         <div class="flight-total">Durata totale <strong>${duration(item.totalDurationSeconds)}</strong></div>
       </div>
       ${renderLeg('Andata', item.outbound)}
@@ -289,6 +328,12 @@
     rerender() {
       if (!liveResults.length) return;
       renderSorted();
+    },
+    mergeExternalResults(items) {
+      mergeExternalResults(items);
+    },
+    getResults() {
+      return [...liveResults];
     }
   };
 
