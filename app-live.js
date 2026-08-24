@@ -1,5 +1,7 @@
 (() => {
   const API_URL = 'https://fly2-api.fly2-search.workers.dev/search';
+  const COUNTRY_PAIR_API = 'https://fly2-api.fly2-search.workers.dev/country-pair-search';
+  const COMPARE_API = 'https://fly2-api.fly2-search.workers.dev/ryanair-compare';
   const COUNTRY_DIRECT_API = 'https://fly2-api.fly2-search.workers.dev/ryanair-country';
   const AIRPORT_META_API = 'https://fly2-api.fly2-search.workers.dev/airports';
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -92,6 +94,7 @@
 
   let liveResults = [];
   let preferredCodes = [];
+  let countrySearchContext = null;
   const bookingStore = new Map();
   const bookingModal = createUnifiedBookingModal();
   const detailsStore = new Map();
@@ -122,6 +125,20 @@
       return;
     }
 
+    const countryChoice = event.target.closest?.('[data-country-choice]');
+    if (countryChoice) {
+      event.preventDefault();
+      openCountryChoice(countryChoice.dataset.countryChoice);
+      return;
+    }
+
+    const countryBack = event.target.closest?.('[data-country-back]');
+    if (countryBack) {
+      event.preventDefault();
+      renderCountryChoices();
+      return;
+    }
+
     const layoverButton = event.target.closest?.('.long-layover-trigger[data-layover-key]');
     if (layoverButton) {
       event.preventDefault();
@@ -136,7 +153,15 @@
 
     try {
       const payload = buildPayload();
+      countrySearchContext = null;
+      liveResults = [];
       showLoading(payload);
+
+      if (payload.destinationType === 'country' && payload.originIata) {
+        await searchCountryAirportByAirport(payload);
+        return;
+      }
+
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,37 +172,318 @@
       const result = data.result;
       if (!result || !Array.isArray(result.itineraries)) throw new Error('Kiwi non ha restituito un elenco di itinerari valido.');
 
-      const kiwiItems = result.itineraries
-        .filter(item => !isHiddenCityItinerary(item))
-        .map(item => ({
-          ...item,
-          source: item?.source || 'Kiwi',
-          kiwiBookingUrl: item?.kiwiBookingUrl || item?.bookingUrl || null
-        }));
+      const kiwiItems = normalizeKiwiItems(result.itineraries);
       liveResults = applyLocalPolicies(kiwiItems);
-      const countryDirectSearch = payload.destinationType === 'country' && Boolean(payload.originIata);
-
-      $('#resultTitle').textContent = result.query || `${payload.origin} → ${payload.destination}`;
-      $('#resultSortWrap').classList.remove('hidden');
-      $('#resultSort').value = 'Predefinito';
-
-      if (liveResults.length) {
-        renderSorted();
-      } else if (!countryDirectSearch) {
+      if (!liveResults.length) {
         showMessage('Nessun volo compatibile', 'Kiwi ha risposto correttamente, ma nessun itinerario rispetta tutti i filtri selezionati.');
         return;
       }
 
-      if (countryDirectSearch) {
-        await mergeCountryDirectResults(payload);
-        if (!liveResults.length) {
-          showMessage('Nessun volo compatibile', 'Né Kiwi né la ricerca diretta Ryanair hanno trovato itinerari compatibili con tutti i filtri selezionati.');
-        }
-      }
+      $('#resultTitle').textContent = result.query || `${payload.origin} → ${payload.destination}`;
+      $('#resultSortWrap').classList.remove('hidden');
+      $('#resultSort').value = 'Predefinito';
+      renderSorted();
     } catch (error) {
       showMessage('Ricerca non riuscita', error instanceof Error ? error.message : String(error));
     }
   }
+
+  function normalizeKiwiItems(items) {
+    return (Array.isArray(items) ? items : [])
+      .filter(item => !isHiddenCityItinerary(item))
+      .map(item => ({
+        ...item,
+        source: item?.source || 'Kiwi',
+        kiwiBookingUrl: item?.kiwiBookingUrl || item?.bookingUrl || null
+      }));
+  }
+
+  async function searchCountryAirportByAirport(payload) {
+    const countryInfo = await resolveCountryAirports(payload.destination, payload.destinationCountryCode);
+    const airportCodes = countryInfo.airportCodes;
+    if (!airportCodes.length) throw new Error('Non ho trovato aeroporti per il Paese selezionato.');
+
+    const metaResponse = await fetch(`${AIRPORT_META_API}?codes=${encodeURIComponent(airportCodes.join(','))}`);
+    const metaData = await metaResponse.json().catch(() => null);
+    const airportMeta = new Map(
+      (metaResponse.ok && Array.isArray(metaData?.airports) ? metaData.airports : [])
+        .map(item => [String(item?.iataCode || '').toUpperCase(), item])
+    );
+
+    const groups = new Map();
+    let cursor = 0;
+    let completed = 0;
+    let failed = 0;
+
+    countrySearchContext = {
+      payload,
+      countryName: countryInfo.countryName || payload.destination,
+      countryCode: countryInfo.countryCode || payload.destinationCountryCode || '',
+      airportCount: airportCodes.length,
+      groups,
+      selectedKey: null,
+      completed: 0,
+      failed: 0
+    };
+
+    renderCountryProgress(0, airportCodes.length, 0);
+
+    const worker = async () => {
+      while (true) {
+        const index = cursor++;
+        if (index >= airportCodes.length) return;
+        const destinationIata = airportCodes[index];
+
+        try {
+          const items = await searchOneCountryAirport(payload, destinationIata);
+          if (items.length) addCountryAirportResults(groups, destinationIata, items, airportMeta.get(destinationIata));
+        } catch {
+          failed += 1;
+        } finally {
+          completed += 1;
+          countrySearchContext.completed = completed;
+          countrySearchContext.failed = failed;
+          renderCountryProgress(completed, airportCodes.length, groups.size);
+        }
+      }
+    };
+
+    const workerCount = Math.min(2, Math.max(1, airportCodes.length));
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    if (!groups.size) {
+      showMessage(
+        'Nessun volo compatibile',
+        failed
+          ? `Ricerca completata con alcune sorgenti non disponibili: nessuna combinazione compatibile trovata su ${airportCodes.length} aeroporti.`
+          : `Ho controllato ${airportCodes.length} aeroporti, ma non ho trovato combinazioni compatibili con tutti i filtri selezionati.`
+      );
+      return;
+    }
+
+    renderCountryChoices();
+  }
+
+  async function resolveCountryAirports(countryName, countryCode) {
+    const response = await fetch(`${AIRPORT_META_API}?q=${encodeURIComponent(countryName)}`);
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error('Non riesco a recuperare l’elenco degli aeroporti del Paese.');
+
+    const wantedCode = String(countryCode || '').toUpperCase();
+    const wantedName = norm(countryName);
+    const country = (Array.isArray(data.locations) ? data.locations : []).find(item => {
+      if (item?.type !== 'country') return false;
+      if (wantedCode && String(item?.countryCode || '').toUpperCase() === wantedCode) return true;
+      return norm(item?.countryName) === wantedName;
+    });
+
+    if (!country || !Array.isArray(country.airportCodes)) {
+      throw new Error('Il Paese selezionato non contiene un elenco di aeroporti ricercabili.');
+    }
+
+    return {
+      countryName: country.countryName || countryName,
+      countryCode: country.countryCode || countryCode || '',
+      airportCodes: [...new Set(country.airportCodes.map(code => String(code).toUpperCase()))]
+        .filter(code => /^[A-Z]{3}$/.test(code))
+    };
+  }
+
+  async function searchOneCountryAirport(payload, destinationIata) {
+    const pairPayload = {
+      ...payload,
+      origin: payload.originIata || payload.origin,
+      destination: destinationIata,
+      destinationType: 'airport',
+      destinationIata,
+      destinationCountryCode: ''
+    };
+
+    const kiwiPromise = fetch(COUNTRY_PAIR_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pairPayload)
+    }).then(async response => {
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok || !Array.isArray(data?.result?.itineraries)) return [];
+      return normalizeKiwiItems(data.result.itineraries);
+    }).catch(() => []);
+
+    const directPromise = canRunDirectPairSearch(pairPayload)
+      ? fetch(COMPARE_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildDirectPairPayload(pairPayload))
+        }).then(async response => {
+          const data = await response.json().catch(() => null);
+          if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) return [];
+          return data.itineraries
+            .map(item => item?.fly2Itinerary)
+            .filter(item => item && Number.isFinite(Number(item.price)));
+        }).catch(() => [])
+      : Promise.resolve([]);
+
+    const [kiwiItems, directItems] = await Promise.all([kiwiPromise, directPromise]);
+    return applyLocalPolicies(mergeItemsLocal([...kiwiItems, ...directItems]));
+  }
+
+  function canRunDirectPairSearch(payload) {
+    if (Array.isArray(payload.excludeAirlines) && payload.excludeAirlines.includes('FR')) return false;
+    if (payload.flyDays || payload.returnFlyDays) return false;
+    return Boolean(payload.originIata && payload.destinationIata && payload.departureDate);
+  }
+
+  function buildDirectPairPayload(payload) {
+    return {
+      searchMode: payload.searchMode || undefined,
+      originIata: payload.originIata,
+      destinationIata: payload.destinationIata,
+      departureDate: payload.departureDate,
+      departureDateTo: payload.departureDateTo || null,
+      departureDateFlexDays: payload.departureDateFlexDays || 0,
+      returnDate: payload.returnDate || null,
+      returnDateTo: payload.returnDateTo || null,
+      returnDateFlexDays: payload.returnDateFlexDays || 0,
+      searchHorizonMonths: payload.searchHorizonMonths || undefined,
+      stayNights: payload.stayNights || payload.nightsFrom || undefined,
+      adults: payload.adults || 1,
+      children: payload.children || 0,
+      infants: payload.infants || 0,
+      maxStopovers: payload.maxStopovers ?? 1,
+      maxLayoverHours: payload.maxLayoverHours ?? null,
+      excludeStopoverCountries: payload.excludeStopoverCountries || []
+    };
+  }
+
+  function mergeItemsLocal(items) {
+    const byKey = new Map();
+    for (const item of items) {
+      if (!item || isHiddenCityItinerary(item)) continue;
+      const key = itineraryMergeKey(item) || JSON.stringify(item);
+      const normalized = {
+        ...item,
+        kiwiBookingUrl:
+          item?.kiwiBookingUrl ||
+          (item?.source === 'Kiwi' ? item?.bookingUrl : null) ||
+          null
+      };
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, normalized);
+        continue;
+      }
+      const winner = rawItemPrice(normalized) < rawItemPrice(existing) ? normalized : existing;
+      const kiwiBookingUrl =
+        existing?.kiwiBookingUrl ||
+        (existing?.source === 'Kiwi' ? existing?.bookingUrl : null) ||
+        normalized?.kiwiBookingUrl ||
+        (normalized?.source === 'Kiwi' ? normalized?.bookingUrl : null) ||
+        null;
+      byKey.set(key, { ...winner, kiwiBookingUrl });
+    }
+    return [...byKey.values()];
+  }
+
+  function rawItemPrice(item) {
+    const value = Number(item?.price);
+    return Number.isFinite(value) ? value : Infinity;
+  }
+
+  function addCountryAirportResults(groups, code, items, meta) {
+    const city = String(meta?.city || code).trim();
+    const key = norm(city || code);
+    const current = groups.get(key) || {
+      key,
+      city: city || code,
+      airportCodes: [],
+      airportNames: [],
+      items: [],
+      minPrice: Infinity,
+      hasDirect: false
+    };
+
+    if (!current.airportCodes.includes(code)) current.airportCodes.push(code);
+    if (meta?.name && !current.airportNames.includes(meta.name)) current.airportNames.push(meta.name);
+
+    current.items = mergeItemsLocal([...current.items, ...items]);
+    current.minPrice = current.items.reduce((best, item) => Math.min(best, rawItemPrice(item)), Infinity);
+    current.hasDirect = current.items.some(item => stops(item) === 0);
+    groups.set(key, current);
+  }
+
+  function renderCountryProgress(completed, total, foundCities) {
+    resetButton();
+    button.disabled = true;
+    button.classList.add('is-loading');
+    button.innerHTML = 'Cerco in tutto il Paese… <span>⌛</span>';
+    $('#resultSortWrap').classList.add('hidden');
+    $('#resultContent').innerHTML = `
+      <div class="country-progress-card">
+        <strong>Ricerca aeroporto per aeroporto</strong>
+        <span>${completed} / ${total} aeroporti controllati</span>
+        <div class="country-progress-track"><span style="width:${total ? Math.round(completed / total * 100) : 0}%"></span></div>
+        <small>${foundCities ? `${foundCities} destinazioni con risultati trovate finora.` : 'Confronto Kiwi e fonti dirette disponibili per ogni aeroporto.'}</small>
+      </div>`;
+    $('#resultSection').classList.remove('hidden');
+  }
+
+  function renderCountryChoices() {
+    if (!countrySearchContext) return;
+    resetButton();
+    countrySearchContext.selectedKey = null;
+    liveResults = [];
+
+    const groups = [...countrySearchContext.groups.values()]
+      .filter(group => Number.isFinite(group.minPrice))
+      .sort((a, b) => a.minPrice - b.minPrice || a.city.localeCompare(b.city, 'it'));
+
+    $('#resultTitle').textContent = `${countrySearchContext.payload.origin} → ${countrySearchContext.countryName}`;
+    $('#resultSortWrap').classList.add('hidden');
+
+    const searchedText = countrySearchContext.failed
+      ? `${countrySearchContext.completed} aeroporti controllati · ${countrySearchContext.failed} ricerche non completate`
+      : `${countrySearchContext.completed} aeroporti controllati`;
+
+    $('#resultContent').innerHTML = `
+      <div class="country-choice-head">
+        <div>
+          <strong>Scegli la città</strong>
+          <span>${groups.length} destinazioni trovate · ${esc(searchedText)}</span>
+        </div>
+        <small>Prezzo minimo trovato per ciascuna città con i filtri selezionati.</small>
+      </div>
+      <div class="country-choice-grid">
+        ${groups.map(group => {
+          const price = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(group.minPrice);
+          return `
+            <button type="button" class="country-choice-card" data-country-choice="${escAttr(group.key)}">
+              <div class="country-choice-title"><strong>${esc(group.city)}</strong><span>→</span></div>
+              <span class="country-choice-codes">${esc(group.airportCodes.join(' · '))}</span>
+              <small>Biglietti da</small>
+              <strong class="country-choice-price">${esc(price)}</strong>
+              <span class="country-choice-count">${group.items.length} ${group.items.length === 1 ? 'combinazione' : 'combinazioni'}</span>
+              ${group.hasDirect ? '<span class="country-direct-badge">Diretto disponibile</span>' : '<span class="country-connection-badge">Con scalo</span>'}
+            </button>`;
+        }).join('')}
+      </div>`;
+
+    $('#resultSection').classList.remove('hidden');
+    $('#resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function openCountryChoice(key) {
+    if (!countrySearchContext) return;
+    const group = countrySearchContext.groups.get(key);
+    if (!group) return;
+
+    countrySearchContext.selectedKey = key;
+    liveResults = applyLocalPolicies([...group.items]);
+    $('#resultTitle').textContent = `${countrySearchContext.payload.origin} → ${group.city}`;
+    $('#resultSortWrap').classList.remove('hidden');
+    $('#resultSort').value = 'Prezzo';
+    renderSorted();
+  }
+
 
   function buildPayload() {
     const origin = $('#origin')?.value.trim();
@@ -480,7 +786,15 @@
         <span class="minimum-price-source">${esc(cheapestSource)} · migliore tra ${items.length} itinerari</span>
       </div>` : '';
 
+    const countryBack = countrySearchContext?.selectedKey
+      ? `<div class="country-selected-bar">
+          <button type="button" data-country-back>← Tutte le città</button>
+          <span>Confronto completo per la città selezionata</span>
+        </div>`
+      : '';
+
     content.innerHTML =
+      countryBack +
       `<div class="live-results-meta">
         <div class="live-results-count"><strong>${items.length} itinerari</strong><span>${sourceText}</span></div>
         ${minimumCard}
@@ -1121,7 +1435,9 @@
     button.classList.add('is-loading');
     button.innerHTML = 'Cerco voli reali… <span>⌛</span>';
     $('#resultTitle').textContent = `${payload.origin} → ${payload.destination}`;
-    $('#resultContent').innerHTML = '<article class="result-card"><div class="notice"><strong>Ricerca in corso…</strong><br>Fly2 sta interrogando Kiwi tramite il Worker Cloudflare.</div></article>';
+    $('#resultContent').innerHTML = payload.destinationType === 'country'
+      ? '<article class="result-card"><div class="notice"><strong>Preparo gli aeroporti del Paese…</strong><br>Fly2 cercherà separatamente ogni aeroporto e confronterà le fonti disponibili.</div></article>'
+      : '<article class="result-card"><div class="notice"><strong>Ricerca in corso…</strong><br>Fly2 sta interrogando Kiwi tramite il Worker Cloudflare.</div></article>';
     $('#resultSortWrap').classList.add('hidden');
     $('#resultSection').classList.remove('hidden');
     $('#resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
