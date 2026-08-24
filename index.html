@@ -7,6 +7,7 @@
   <meta name="description" content="Fly2 — ricerca voli semplice, mobile-first e senza prezzi inventati." />
   <title>Fly2</title>
   <link rel="stylesheet" href="./styles-v2.css" />
+  <link rel="stylesheet" href="./styles-v3.css" />
 </head>
 <body>
   <div class="app-shell">
@@ -115,27 +116,48 @@
 
         <button id="advancedToggle" class="advanced-entry" type="button" aria-expanded="false">
           <span class="advanced-entry-icon">✦</span>
-          <span class="advanced-entry-copy"><strong>Personalizza la ricerca</strong><small>Compagnie, durata degli scali e Paesi da evitare</small></span>
+          <span class="advanced-entry-copy"><strong>Personalizza la ricerca</strong><small>Compagnie nei segmenti, durata degli scali e Paesi da evitare</small></span>
           <span class="advanced-entry-arrow">›</span>
         </button>
 
         <div id="advancedPanel" class="advanced hidden">
-          <section class="filter-group roundtrip-only">
-            <div class="filter-title"><strong>Compagnie tra andata e ritorno</strong><small>Definisce il rapporto tra la compagnia dell'andata e quella del ritorno.</small></div>
-            <div class="choice-grid" id="airlineStrategyGroup">
-              <label><input type="radio" name="airlineStrategy" value="any" checked /><span><strong>Qualsiasi</strong><small>Possono essere uguali o diverse</small></span></label>
-              <label><input type="radio" name="airlineStrategy" value="same" /><span><strong>Stessa compagnia</strong><small>Richiedi la stessa per A/R</small></span></label>
-              <label><input type="radio" name="airlineStrategy" value="different" /><span><strong>Compagnie diverse</strong><small>Richiedi compagnie differenti</small></span></label>
+          <div id="segmentCarrierDirectNote" class="filter-info hidden">
+            <strong>Compagnie nei segmenti</strong>
+            <span>Con “Solo diretti” non ci sono segmenti con scalo da confrontare.</span>
+          </div>
+
+          <section class="filter-group" id="segmentCarrierFilter">
+            <div class="filter-title">
+              <strong>Compagnia nei voli con scalo</strong>
+              <small>Il vincolo vale all'interno della singola tratta. Andata e ritorno possono avere impostazioni diverse.</small>
+            </div>
+
+            <div class="segment-policy-grid">
+              <article class="segment-policy-card">
+                <div class="segment-policy-head"><strong>Andata</strong><small>Es. Bologna → Vienna → Agadir</small></div>
+                <div class="choice-grid choice-grid-two">
+                  <label><input type="radio" name="outSegmentCarrier" value="any" checked /><span><strong>Possono cambiare</strong><small>I segmenti possono usare compagnie diverse</small></span></label>
+                  <label><input type="radio" name="outSegmentCarrier" value="same" /><span><strong>Stessa compagnia</strong><small>Tutti i segmenti dell'andata con la stessa compagnia</small></span></label>
+                </div>
+              </article>
+
+              <article class="segment-policy-card return-control">
+                <div class="segment-policy-head"><strong>Ritorno</strong><small>Vincolo indipendente dall'andata</small></div>
+                <div class="choice-grid choice-grid-two">
+                  <label><input type="radio" name="inSegmentCarrier" value="any" checked /><span><strong>Possono cambiare</strong><small>I segmenti possono usare compagnie diverse</small></span></label>
+                  <label><input type="radio" name="inSegmentCarrier" value="same" /><span><strong>Stessa compagnia</strong><small>Tutti i segmenti del ritorno con la stessa compagnia</small></span></label>
+                </div>
+              </article>
             </div>
           </section>
 
           <section class="filter-group">
-            <div class="filter-title"><strong>Compagnie preferite</strong><small>Verranno privilegiate, ma non escludono automaticamente le altre.</small></div>
+            <div class="filter-title"><strong>Compagnie preferite</strong><small>Verranno privilegiate nei segmenti del viaggio, ma non escludono automaticamente le altre.</small></div>
             <div class="tag-input-wrap"><div id="airlineIncludeChips" class="tag-list"></div><input id="airlineIncludeInput" autocomplete="off" placeholder="Cerca una compagnia…" /><div id="airlineIncludeSuggestions" class="smart-suggestions hidden"></div></div>
           </section>
 
           <section class="filter-group">
-            <div class="filter-title"><strong>Compagnie da escludere</strong><small>È un filtro rigido: Fly2 non dovrà proporre voli operati da queste compagnie.</small></div>
+            <div class="filter-title"><strong>Compagnie da escludere</strong><small>Un itinerario viene escluso se contiene un segmento operato da una di queste compagnie.</small></div>
             <div class="tag-input-wrap"><div id="airlineExcludeChips" class="tag-list"></div><input id="airlineExcludeInput" autocomplete="off" placeholder="Cerca una compagnia da escludere…" /><div id="airlineExcludeSuggestions" class="smart-suggestions hidden"></div></div>
           </section>
 
@@ -167,21 +189,28 @@
   </footer>
 
   <div id="sheetBackdrop" class="backdrop hidden"></div>
-  <section id="passengerSheet" class="sheet hidden" aria-label="Passeggeri">
+  <section id="passengerSheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="passengerTitle">
     <div class="handle"></div>
-    <div class="sheet-head"><div><p class="eyebrow">Passeggeri</p><h2>Chi viaggia?</h2></div><button id="closePassengers" class="icon-button" type="button">×</button></div>
+    <div class="sheet-head">
+      <div><p class="eyebrow">Passeggeri</p><h2 id="passengerTitle">Chi viaggia?</h2></div>
+      <button id="closePassengers" class="icon-button" type="button" aria-label="Chiudi senza salvare">×</button>
+    </div>
     <div id="passengerRows"></div>
-    <button id="passengerDone" class="primary" type="button">Fatto</button>
+    <div class="sheet-actions">
+      <button id="passengerCancel" class="secondary-action" type="button">Annulla</button>
+      <button id="passengerConfirm" class="primary sheet-primary" type="button">Conferma</button>
+    </div>
   </section>
 
   <div id="helpModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card">
       <div class="sheet-head"><div><p class="eyebrow">Informazioni</p><h2>Come funziona Fly2</h2></div><button data-close-modal class="icon-button" type="button">×</button></div>
       <p>Fly2 gira nel browser con GitHub Pages e non usa servizi a pagamento. I filtri vengono già memorizzati nell'interfaccia, ma avranno effetto sui voli solo dopo il collegamento di una sorgente reale.</p>
-      <p><strong>Compagnie:</strong> “Qualsiasi” non impone relazioni tra andata e ritorno; “Stessa compagnia” richiede la stessa; “Compagnie diverse” richiede che siano differenti. Le preferite sono una priorità, mentre le escluse sono un divieto.</p>
+      <p><strong>Compagnia nei voli con scalo:</strong> il vincolo riguarda i segmenti della stessa tratta. Per esempio Bologna → Vienna → Agadir può essere tutto con la stessa compagnia oppure può combinare compagnie differenti. L'andata e il ritorno si configurano separatamente.</p>
+      <p><strong>Compagnie preferite:</strong> sono una priorità. <strong>Compagnie da escludere:</strong> sono invece un divieto e fanno scartare qualsiasi itinerario che contenga un loro segmento.</p>
     </div>
   </div>
 
-  <script src="./app-v2.js" defer></script>
+  <script src="./app-v3.js" defer></script>
 </body>
 </html>
