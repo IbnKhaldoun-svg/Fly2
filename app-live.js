@@ -226,7 +226,10 @@
       groups,
       selectedKey: null,
       completed: 0,
-      failed: 0
+      failed: 0,
+      directAttempts: 0,
+      directSuccesses: 0,
+      directFailures: 0
     };
 
     renderCountryProgress(0, airports.length, 0);
@@ -238,12 +241,17 @@
         const airport = airports[index];
 
         try {
-          const items = await searchOneCountryAirport(payload, airport);
-          if (items.length) {
+          const result = await searchOneCountryAirport(payload, airport);
+          if (result.directAttempted) {
+            countrySearchContext.directAttempts += 1;
+            if (result.directAvailable) countrySearchContext.directSuccesses += 1;
+            else countrySearchContext.directFailures += 1;
+          }
+          if (result.items.length) {
             addCountryAirportResults(
               groups,
               airport.iataCode,
-              items,
+              result.items,
               airport
             );
           }
@@ -332,24 +340,33 @@
       return normalizeKiwiItems(data.result.itineraries);
     }).catch(() => []);
 
-    const directPromise = airport.ryanair && canRunDirectPairSearch(pairPayload)
+    const directAttempted = Boolean(airport.ryanair && canRunDirectPairSearch(pairPayload));
+    const directPromise = directAttempted
       ? fetch(COMPARE_API, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(buildDirectPairPayload(pairPayload))
         }).then(async response => {
           const data = await response.json().catch(() => null);
-          if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) return [];
-          return data.itineraries
-            .map(item => item?.fly2Itinerary)
-            .filter(item => item && Number.isFinite(Number(item.price)));
-        }).catch(() => [])
-      : Promise.resolve([]);
+          if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) {
+            return { available: false, items: [] };
+          }
+          return {
+            available: true,
+            items: data.itineraries
+              .map(item => item?.fly2Itinerary)
+              .filter(item => item && Number.isFinite(Number(item.price)))
+          };
+        }).catch(() => ({ available: false, items: [] }))
+      : Promise.resolve({ available: null, items: [] });
 
-    const [kiwiItems, directItems] = await Promise.all([kiwiPromise, directPromise]);
-    return applyLocalPolicies(mergeItemsLocal([...kiwiItems, ...directItems]));
+    const [kiwiItems, directResult] = await Promise.all([kiwiPromise, directPromise]);
+    return {
+      items: applyLocalPolicies(mergeItemsLocal([...kiwiItems, ...directResult.items])),
+      directAttempted,
+      directAvailable: directResult.available === true
+    };
   }
-
 
   function canRunDirectPairSearch(payload) {
     if (Array.isArray(payload.excludeAirlines) && payload.excludeAirlines.includes('FR')) return false;
@@ -468,13 +485,23 @@
       ? `${countrySearchContext.completed} aeroporti commerciali controllati · ${countrySearchContext.failed} ricerche non completate`
       : `${countrySearchContext.completed} aeroporti commerciali controllati`;
 
+    const directStatus = countrySearchContext.directAttempts
+      ? (
+          countrySearchContext.directFailures === countrySearchContext.directAttempts
+            ? 'Kiwi disponibile · Ryanair diretto non disponibile in questa ricerca'
+            : countrySearchContext.directFailures
+              ? `Kiwi + Ryanair diretto · ${countrySearchContext.directFailures} verifiche Ryanair non riuscite`
+              : 'Kiwi + Ryanair diretto disponibili'
+        )
+      : 'Kiwi disponibile · nessuna verifica Ryanair diretta necessaria';
+
     $('#resultContent').innerHTML = `
       <div class="country-choice-head">
         <div>
           <strong>Scegli la città</strong>
           <span>${groups.length} destinazioni trovate · ${esc(searchedText)}</span>
         </div>
-        <small>Prezzo minimo per città · aeroporti commerciali da ${esc(countrySearchContext.airportSource || 'fonte aeroportuale neutrale')}.</small>
+        <small>Prezzo minimo per città · aeroporti commerciali da ${esc(countrySearchContext.airportSource || 'fonte aeroportuale neutrale')} · ${esc(directStatus)}.</small>
       </div>
       <div class="country-choice-grid">
         ${groups.map(group => {
