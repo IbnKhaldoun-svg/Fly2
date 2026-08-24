@@ -1,6 +1,7 @@
 const KIWI_MCP_URL = 'https://mcp.kiwi.com';
 const RYANAIR_FINDER_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/search';
 const RYANAIR_AIRPORTS_URL = 'https://ryanair-flight-finder-v2.vercel.app/api/airports';
+const OURAIRPORTS_COUNTRY_BASE = 'https://ourairports.com/countries';
 const ALLOWED_ORIGINS = new Set([
   'https://ibnkhaldoun-svg.github.io',
   'http://localhost:3000',
@@ -41,6 +42,22 @@ export default {
         return await searchFlights(input, cors);
       } catch (error) {
         return json({ ok: false, error: safeError(error) }, 400, cors);
+      }
+    }
+
+    if (url.pathname === '/country-airports' && request.method === 'GET') {
+      try {
+        enforceAllowedOrigin(request);
+        const countryCode = String(url.searchParams.get('country') || '').trim().toUpperCase();
+        const countryName = String(url.searchParams.get('name') || '').trim();
+        if (!/^[A-Z]{2}$/.test(countryCode)) {
+          throw new Error('Codice Paese non valido.');
+        }
+
+        const data = await getCommercialCountryAirports(countryCode, countryName);
+        return json({ ok: true, ...data }, 200, cors);
+      } catch (error) {
+        return json({ ok: false, error: safeError(error) }, 502, cors);
       }
     }
 
@@ -98,9 +115,136 @@ export default {
       }
     }
 
-    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /country-pair-search', 'POST /ryanair-country', 'POST /ryanair-compare'] }, 404, cors);
+    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /country-airports?country=MA&name=Marocco', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /country-pair-search', 'POST /ryanair-country', 'POST /ryanair-compare'] }, 404, cors);
   }
 };
+
+async function getCommercialCountryAirports(countryCode, countryName = '') {
+  const csvUrl = `${OURAIRPORTS_COUNTRY_BASE}/${encodeURIComponent(countryCode)}/airports.csv`;
+
+  const [oaResponse, ryanairResponse] = await Promise.all([
+    fetch(csvUrl, { headers: { 'Accept': 'text/csv,*/*' } }),
+    fetchRyanairCountryAirportCodes(countryName || countryCode)
+  ]);
+
+  if (!oaResponse.ok) {
+    throw new Error(`Elenco aeroporti commerciali non disponibile (HTTP ${oaResponse.status}).`);
+  }
+
+  const csvText = await oaResponse.text();
+  const rows = parseCsvObjects(csvText);
+  const ryanairCodes = ryanairResponse;
+
+  const airports = rows
+    .map(row => ({
+      iataCode: String(row.iata_code || '').trim().toUpperCase(),
+      name: String(row.name || '').trim(),
+      city: String(row.municipality || '').trim(),
+      countryCode: String(row.iso_country || countryCode).trim().toUpperCase(),
+      type: String(row.type || '').trim(),
+      scheduledService: String(row.scheduled_service || '').trim().toLowerCase() === 'yes',
+      latitude: finiteOrNull(row.latitude_deg),
+      longitude: finiteOrNull(row.longitude_deg),
+      homeLink: String(row.home_link || '').trim() || null
+    }))
+    .filter(item =>
+      /^[A-Z]{3}$/.test(item.iataCode) &&
+      item.scheduledService &&
+      !['closed', 'heliport', 'seaplane_base', 'balloonport'].includes(item.type)
+    )
+    .map(item => ({
+      ...item,
+      city: item.city || item.name || item.iataCode,
+      ryanair: ryanairCodes.has(item.iataCode)
+    }))
+    .sort((a, b) => a.city.localeCompare(b.city, 'it') || a.iataCode.localeCompare(b.iataCode));
+
+  return {
+    countryCode,
+    countryName: countryName || countryCode,
+    source: 'OurAirports',
+    sourceUpdated: 'daily',
+    airports
+  };
+}
+
+async function fetchRyanairCountryAirportCodes(query) {
+  try {
+    const url = new URL(RYANAIR_AIRPORTS_URL);
+    url.searchParams.set('q', query);
+    const response = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data) return new Set();
+
+    const locations = Array.isArray(data.locations) ? data.locations : [];
+    const country = locations.find(item => item?.type === 'country');
+    const codes = Array.isArray(country?.airportCodes) ? country.airportCodes : [];
+    return new Set(codes.map(code => String(code || '').trim().toUpperCase()).filter(code => /^[A-Z]{3}$/.test(code)));
+  } catch {
+    return new Set();
+  }
+}
+
+function parseCsvObjects(text) {
+  const rows = parseCsvRows(String(text || ''));
+  if (!rows.length) return [];
+
+  const headers = rows[0].map(value => String(value || '').trim());
+  return rows.slice(1)
+    .filter(row => row.some(value => String(value || '').trim()))
+    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])));
+}
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          quoted = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',') {
+      row.push(field);
+      field = '';
+    } else if (ch === '\n') {
+      row.push(field.replace(/\r$/, ''));
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+
+  if (field.length || row.length) {
+    row.push(field.replace(/\r$/, ''));
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function finiteOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 
 async function searchFlights(input, cors) {
   try {
