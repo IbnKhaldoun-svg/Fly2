@@ -96,7 +96,7 @@ async function compareRyanair(input, cors) {
       throw new Error(message);
     }
 
-    const itineraries = Array.isArray(data?.itineraries) ? data.itineraries.map(normalizeRyanairItinerary).filter(Boolean) : [];
+    const itineraries = Array.isArray(data?.itineraries) ? data.itineraries.map(item => normalizeRyanairItinerary(item, payload)).filter(Boolean) : [];
     itineraries.sort((a, b) => a.totalPrice - b.totalPrice);
 
     return json({
@@ -158,7 +158,7 @@ function buildRyanairFinderPayload(input) {
   };
 }
 
-function normalizeRyanairItinerary(item) {
+function normalizeRyanairItinerary(item, passengers) {
   if (!item || !item.outbound) return null;
   const outbound = normalizeRyanairLeg(item.outbound);
   const inbound = item.inbound ? normalizeRyanairLeg(item.inbound) : null;
@@ -179,7 +179,7 @@ function normalizeRyanairItinerary(item) {
       label: `${segment.from} → ${segment.to}`,
       flightNumber: segment.flightNumber,
       departureAt: segment.departureAt,
-      url: ryanairBookingUrl(segment.from, segment.to, segment.departureAt)
+      url: ryanairBookingUrl(segment.from, segment.to, segment.departureAt, passengers)
     }))
   };
 }
@@ -200,13 +200,17 @@ function normalizeRyanairLeg(leg) {
   };
 }
 
-function ryanairBookingUrl(origin, destination, departureAt) {
+function ryanairBookingUrl(origin, destination, departureAt, passengers = {}) {
   const dateOut = String(departureAt || '').slice(0, 10);
+  const adults = String(passengers.adults ?? 1);
+  const teens = String(passengers.teens ?? 0);
+  const children = String(passengers.children ?? 0);
+  const infants = String(passengers.infants ?? 0);
   const params = new URLSearchParams({
-    adults: '1',
-    teens: '0',
-    children: '0',
-    infants: '0',
+    adults,
+    teens,
+    children,
+    infants,
     dateOut,
     dateIn: '',
     isConnectedFlight: 'false',
@@ -214,10 +218,10 @@ function ryanairBookingUrl(origin, destination, departureAt) {
     promoCode: '',
     originIata: origin,
     destinationIata: destination,
-    tpAdults: '1',
-    tpTeens: '0',
-    tpChildren: '0',
-    tpInfants: '0',
+    tpAdults: adults,
+    tpTeens: teens,
+    tpChildren: children,
+    tpInfants: infants,
     tpStartDate: dateOut,
     tpEndDate: '',
     tpDiscount: '0',
