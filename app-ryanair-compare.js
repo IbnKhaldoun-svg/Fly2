@@ -8,6 +8,7 @@
   let latestMatches = new Map();
   let latestRequest = null;
   let refreshQueued = false;
+  const bookingStore = new Map();
 
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (resource, init = {}) => {
@@ -37,6 +38,15 @@
   }
 
   const bookingModal = createBookingModal();
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest?.('.ryanair-booking-button[data-booking-key]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const booking = bookingStore.get(button.dataset.bookingKey);
+    if (booking) openBookingModal(booking.items, booking.direct);
+  }, true);
 
   async function compareIfUseful(items, request) {
     if (!request || !isExactSearch(request)) return;
@@ -150,16 +160,21 @@
     if (!latestMatches.size) return;
     const kiwiBySignature = new Map(latestKiwiItems.map(item => [itinerarySignature(item), item]));
 
-    $$('#resultContent .flight-card').forEach(card => {
+    $('#resultContent .flight-card').forEach(card => {
       const signature = cardSignature(card);
       const direct = latestMatches.get(signature);
       const kiwi = kiwiBySignature.get(signature);
       if (!direct || !kiwi) return;
-      renderComparison(card, kiwi, direct);
+
+      const enhancementKey = `${signature}|${Number(direct.totalPrice)}`;
+      if (card.dataset.ryanairEnhanced === enhancementKey) return;
+
+      renderComparison(card, kiwi, direct, enhancementKey);
+      card.dataset.ryanairEnhanced = enhancementKey;
     });
   }
 
-  function renderComparison(card, kiwi, direct) {
+  function renderComparison(card, kiwi, direct, enhancementKey) {
     $('.ryanair-price-compare', card)?.remove();
     $('.ryanair-self-transfer-note', card)?.remove();
     $('.ryanair-booking-button', card)?.remove();
@@ -208,11 +223,15 @@
 
     if (Array.isArray(direct.bookingLinks) && direct.bookingLinks.length) {
       const bookingItems = buildBookingItems(kiwi, direct);
+      bookingStore.set(enhancementKey, { items: bookingItems, direct });
+
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'ryanair-booking-button';
+      button.dataset.bookingKey = enhancementKey;
+      button.setAttribute('aria-haspopup', 'dialog');
       button.innerHTML = 'Prenota su Ryanair <span aria-hidden="true">↗</span>';
-      button.addEventListener('click', () => openBookingModal(bookingItems, direct));
+
       const kiwiLink = $('.book-link', foot);
       if (kiwiLink) foot.insertBefore(button, kiwiLink);
       else foot.appendChild(button);
@@ -249,8 +268,8 @@
       const route = Array.isArray(leg.route) ? leg.route : [];
       const segments = Array.isArray(leg.segments) ? leg.segments : [];
       segments.forEach((segment, index) => {
-        const fromName = route[index];
-        const toName = route[index + 1];
+        const fromName = segment?.fromCity || route[index];
+        const toName = segment?.toCity || route[index + 1];
         if (segment?.from && fromName) map.set(String(segment.from).trim(), cleanPlaceName(fromName));
         if (segment?.to && toName) map.set(String(segment.to).trim(), cleanPlaceName(toName));
       });
