@@ -79,15 +79,27 @@
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok || !Array.isArray(data.itineraries)) return;
 
+    const directItems = data.itineraries
+      .filter(item => Number.isFinite(Number(item?.totalPrice)));
+
     const directByRouteTime = new Map(
-      data.itineraries
-        .filter(item => item?.signature && Number.isFinite(Number(item.totalPrice)))
-        .map(item => [item.signature, item])
+      directItems.map(item => [directRouteTimeSignature(item), item])
     );
+
+    const directByRouteDate = new Map();
+    directItems.forEach(item => {
+      const key = directRouteDateSignature(item);
+      const current = directByRouteDate.get(key);
+      if (!current || Number(item.totalPrice) < Number(current.totalPrice)) {
+        directByRouteDate.set(key, item);
+      }
+    });
 
     const matched = new Map();
     ryanairItems.forEach(kiwiItem => {
-      const direct = directByRouteTime.get(itineraryRouteTimeSignature(kiwiItem));
+      const direct =
+        directByRouteTime.get(itineraryRouteTimeSignature(kiwiItem)) ||
+        directByRouteDate.get(itineraryRouteDateSignature(kiwiItem));
       if (direct) matched.set(itinerarySignature(kiwiItem), direct);
     });
     latestMatches = matched;
@@ -134,6 +146,42 @@
       .join('|');
   }
 
+  function itineraryRouteDateSignature(item) {
+    return [...(item.outbound?.segments || []), ...(item.inbound?.segments || [])]
+      .map(segment => {
+        const from = String(segment?.from || '').trim().toUpperCase();
+        const to = String(segment?.to || '').trim().toUpperCase();
+        const date = String(segment?.departureTime || '').slice(0, 10);
+        return from && to && date ? `${from}-${to}@${date}` : '';
+      })
+      .filter(Boolean)
+      .join('|');
+  }
+
+  function directRouteTimeSignature(item) {
+    return [...(item.outbound?.segments || []), ...(item.inbound?.segments || [])]
+      .map(segment => {
+        const from = String(segment?.from || '').trim().toUpperCase();
+        const to = String(segment?.to || '').trim().toUpperCase();
+        const departure = wallClockMinute(segment?.departureAt);
+        return from && to && departure ? `${from}-${to}@${departure}` : '';
+      })
+      .filter(Boolean)
+      .join('|');
+  }
+
+  function directRouteDateSignature(item) {
+    return [...(item.outbound?.segments || []), ...(item.inbound?.segments || [])]
+      .map(segment => {
+        const from = String(segment?.from || '').trim().toUpperCase();
+        const to = String(segment?.to || '').trim().toUpperCase();
+        const date = String(segment?.departureAt || '').slice(0, 10);
+        return from && to && date ? `${from}-${to}@${date}` : '';
+      })
+      .filter(Boolean)
+      .join('|');
+  }
+
   function wallClockMinute(value) {
     const text = String(value || '').trim();
     const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
@@ -157,27 +205,82 @@
   }
 
   function enhanceCards() {
-    if (!latestMatches.size) return;
+    if (!latestKiwiItems.length) return;
+
     const kiwiBySignature = new Map(latestKiwiItems.map(item => [itinerarySignature(item), item]));
 
-    $('#resultContent .flight-card').forEach(card => {
+    $$('#resultContent .flight-card').forEach((card, index) => {
       const signature = cardSignature(card);
-      const direct = latestMatches.get(signature);
-      const kiwi = kiwiBySignature.get(signature);
-      if (!direct || !kiwi) return;
+      const kiwi = kiwiBySignature.get(signature) || latestKiwiItems[index];
+      if (!kiwi || !allRyanair(kiwi)) return;
 
-      const enhancementKey = `${signature}|${Number(direct.totalPrice)}`;
-      if (card.dataset.ryanairEnhanced === enhancementKey) return;
+      card.dataset.ryanairItinerary = 'true';
+      hideGenericRyanairLink(card);
+      ensureRyanairBooking(card, kiwi, signature || itinerarySignature(kiwi));
 
-      renderComparison(card, kiwi, direct, enhancementKey);
-      card.dataset.ryanairEnhanced = enhancementKey;
+      const direct = latestMatches.get(itinerarySignature(kiwi));
+      if (direct) {
+        const enhancementKey = `${itinerarySignature(kiwi)}|${Number(direct.totalPrice)}`;
+        if (card.dataset.ryanairPriceEnhanced !== enhancementKey) {
+          renderComparison(card, kiwi, direct);
+          card.dataset.ryanairPriceEnhanced = enhancementKey;
+        }
+      } else {
+        ensurePricePending(card);
+      }
     });
   }
 
-  function renderComparison(card, kiwi, direct, enhancementKey) {
+  function hideGenericRyanairLink(card) {
+    $$('.airline-official-link', card).forEach(link => {
+      if (/Ryanair/i.test(link.textContent || '')) link.style.display = 'none';
+    });
+  }
+
+  function ensurePricePending(card) {
+    if ($('.ryanair-price-compare', card) || $('.ryanair-price-pending', card)) return;
+    const priceArea = $('.flight-card-head > div:first-child', card);
+    if (!priceArea || !isExactSearch(latestRequest)) return;
+    const pending = document.createElement('div');
+    pending.className = 'ryanair-price-pending';
+    pending.textContent = 'Verifico il prezzo diretto Ryanair…';
+    priceArea.appendChild(pending);
+  }
+
+  function ensureRyanairBooking(card, kiwi, signature) {
+    const foot = $('.flight-foot', card);
+    if (!foot) return;
+
+    const bookingKey = `ryanair|${signature}`;
+    const items = buildBookingItemsFromKiwi(kiwi, latestRequest);
+    bookingStore.set(bookingKey, {
+      items,
+      direct: { selfTransfer: hasSelfTransfer(kiwi) }
+    });
+
+    let button = $('.ryanair-booking-button', foot);
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ryanair-booking-button';
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.innerHTML = 'Prenota su Ryanair <span aria-hidden="true">↗</span>';
+      const kiwiLink = $('.book-link', foot);
+      if (kiwiLink) foot.insertBefore(button, kiwiLink);
+      else foot.appendChild(button);
+    }
+    button.dataset.bookingKey = bookingKey;
+  }
+
+  function hasSelfTransfer(kiwi) {
+    const legs = [kiwi.outbound, kiwi.inbound].filter(Boolean);
+    return legs.some(leg => Number(leg?.stops || 0) > 0);
+  }
+
+  function renderComparison(card, kiwi, direct) {
     $('.ryanair-price-compare', card)?.remove();
+    $('.ryanair-price-pending', card)?.remove();
     $('.ryanair-self-transfer-note', card)?.remove();
-    $('.ryanair-booking-button', card)?.remove();
 
     const priceArea = $('.flight-card-head > div:first-child', card);
     if (priceArea) {
@@ -218,48 +321,65 @@
       foot.insertAdjacentElement('beforebegin', note);
     }
 
-    const existingOfficial = $$('.airline-official-link', foot).find(link => /Ryanair/i.test(link.textContent));
-    if (existingOfficial) existingOfficial.style.display = 'none';
-
-    if (Array.isArray(direct.bookingLinks) && direct.bookingLinks.length) {
-      const bookingItems = buildBookingItems(kiwi, direct);
-      bookingStore.set(enhancementKey, { items: bookingItems, direct });
-
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'ryanair-booking-button';
-      button.dataset.bookingKey = enhancementKey;
-      button.setAttribute('aria-haspopup', 'dialog');
-      button.innerHTML = 'Prenota su Ryanair <span aria-hidden="true">↗</span>';
-
-      const kiwiLink = $('.book-link', foot);
-      if (kiwiLink) foot.insertBefore(button, kiwiLink);
-      else foot.appendChild(button);
-    }
+    hideGenericRyanairLink(card);
   }
 
-  function buildBookingItems(kiwi, direct) {
+  function buildBookingItemsFromKiwi(kiwi, request) {
     const outboundSegments = kiwi.outbound?.segments || [];
     const inboundSegments = kiwi.inbound?.segments || [];
     const allSegments = [...outboundSegments, ...inboundSegments];
     const cityMap = buildCityMap(kiwi);
 
-    return direct.bookingLinks.map((link, index) => {
-      const segment = allSegments[index] || {};
-      const from = String(segment.from || link.label?.split('→')?.[0] || '').trim();
-      const to = String(segment.to || link.label?.split('→')?.[1] || '').trim();
+    return allSegments.map((segment, index) => {
+      const from = String(segment?.from || '').trim();
+      const to = String(segment?.to || '').trim();
+      const departureAt = segment?.departureTime || '';
       return {
-        url: link.url,
+        url: buildRyanairSegmentUrl(from, to, departureAt, request),
         from,
         to,
-        fromCity: cityMap.get(from) || from,
-        toCity: cityMap.get(to) || to,
-        flightNumber: segment.flightNumber || link.flightNumber || '',
-        departureAt: segment.departureTime || link.departureAt || '',
-        arrivalAt: segment.arrivalTime || '',
+        fromCity: cityMap.get(from) || segment?.fromCity || from,
+        toCity: cityMap.get(to) || segment?.toCity || to,
+        flightNumber: segment?.flightNumber || '',
+        departureAt,
+        arrivalAt: segment?.arrivalTime || '',
         direction: index < outboundSegments.length ? 'Andata' : 'Ritorno'
       };
     });
+  }
+
+  function buildRyanairSegmentUrl(origin, destination, departureAt, request = {}) {
+    const dateOut = String(departureAt || '').slice(0, 10);
+    const adults = String(request?.adults ?? 1);
+    const children = String(request?.children ?? 0);
+    const infants = String(request?.infants ?? 0);
+    const teens = '0';
+
+    const params = new URLSearchParams({
+      adults,
+      teens,
+      children,
+      infants,
+      dateOut,
+      dateIn: '',
+      isConnectedFlight: 'false',
+      discount: '0',
+      promoCode: '',
+      originIata: origin,
+      destinationIata: destination,
+      tpAdults: adults,
+      tpTeens: teens,
+      tpChildren: children,
+      tpInfants: infants,
+      tpStartDate: dateOut,
+      tpEndDate: '',
+      tpDiscount: '0',
+      tpPromoCode: '',
+      tpOriginIata: origin,
+      tpDestinationIata: destination
+    });
+
+    return `https://www.ryanair.com/it/it/trip/flights/select?${params.toString()}`;
   }
 
   function buildCityMap(kiwi) {
