@@ -165,9 +165,14 @@
     return codes.length < 2 || codes.every(code => code === codes[0]);
   }
 
+  function effectivePrice(item) {
+    const combined = window.fly2Pricing?.effectivePrice?.(item);
+    return Number.isFinite(Number(combined)) ? Number(combined) : num(item?.price, Infinity);
+  }
+
   function defaultCompare(a, b) {
     const scoreDiff = preferredScore(b) - preferredScore(a);
-    return scoreDiff || num(a.price, Infinity) - num(b.price, Infinity);
+    return scoreDiff || effectivePrice(a) - effectivePrice(b);
   }
 
   function preferredScore(item) {
@@ -178,10 +183,10 @@
   function renderSorted() {
     const mode = $('#resultSort')?.value || 'Predefinito';
     const items = [...liveResults];
-    if (mode === 'Prezzo') items.sort((a,b) => num(a.price, Infinity) - num(b.price, Infinity));
+    if (mode === 'Prezzo') items.sort((a,b) => effectivePrice(a) - effectivePrice(b));
     else if (mode === 'Durata') items.sort((a,b) => num(a.totalDurationSeconds, Infinity) - num(b.totalDurationSeconds, Infinity));
-    else if (mode === 'Numero di scali') items.sort((a,b) => stops(a) - stops(b) || num(a.price, Infinity) - num(b.price, Infinity));
-    else if (mode === 'Numero di notti') items.sort((a,b) => nights(a) - nights(b) || num(a.price, Infinity) - num(b.price, Infinity));
+    else if (mode === 'Numero di scali') items.sort((a,b) => stops(a) - stops(b) || effectivePrice(a) - effectivePrice(b));
+    else if (mode === 'Numero di notti') items.sort((a,b) => nights(a) - nights(b) || effectivePrice(a) - effectivePrice(b));
     else items.sort(defaultCompare);
     renderResults(items);
   }
@@ -247,6 +252,13 @@
     $('#resultSortWrap').classList.add('hidden');
     $('#resultSection').classList.remove('hidden');
   }
+
+  window.fly2LiveResultsApi = {
+    rerender() {
+      if (!liveResults.length) return;
+      renderSorted();
+    }
+  };
 
   const originalRender = renderResults;
   renderResults = function(items) { resetButton(); originalRender(items); };
