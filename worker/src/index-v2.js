@@ -453,7 +453,9 @@ async function searchRyanairCountry(input, cors) {
     if (!existing || Number(item.totalPrice) < Number(existing.totalPrice)) unique.set(key, item);
   }
 
-  const sorted = [...unique.values()].sort((a, b) => Number(a.totalPrice) - Number(b.totalPrice));
+  let sorted = [...unique.values()];
+  sorted = await enforceExcludedStopoverCountries(sorted, input.excludeStopoverCountries);
+  sorted.sort((a, b) => Number(a.totalPrice) - Number(b.totalPrice));
 
   return json({
     ok: true,
@@ -493,7 +495,8 @@ async function compareRyanair(input, cors) {
       throw new Error(message);
     }
 
-    const itineraries = Array.isArray(data?.itineraries) ? data.itineraries.map(item => normalizeRyanairItinerary(item, payload)).filter(Boolean) : [];
+    let itineraries = Array.isArray(data?.itineraries) ? data.itineraries.map(item => normalizeRyanairItinerary(item, payload)).filter(Boolean) : [];
+    itineraries = await enforceExcludedStopoverCountries(itineraries, input.excludeStopoverCountries);
     itineraries.sort((a, b) => a.totalPrice - b.totalPrice);
 
     return json({
@@ -516,6 +519,86 @@ async function compareRyanair(input, cors) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function enforceExcludedStopoverCountries(itineraries, excludedCountries) {
+  const excluded = new Set(
+    (Array.isArray(excludedCountries) ? excludedCountries : [])
+      .map(normalizeCountryCodeForPolicy)
+      .filter(Boolean)
+  );
+  if (!excluded.size || !Array.isArray(itineraries) || !itineraries.length) return itineraries;
+
+  const stopCodes = new Set();
+  for (const item of itineraries) {
+    collectIntermediateAirportCodes(item?.outbound, stopCodes);
+    collectIntermediateAirportCodes(item?.inbound, stopCodes);
+  }
+
+  const airportCountries = await fetchAirportCountryCodes([...stopCodes]);
+
+  return itineraries.filter(item =>
+    !legUsesExcludedCountry(item?.outbound, excluded, airportCountries) &&
+    !legUsesExcludedCountry(item?.inbound, excluded, airportCountries)
+  );
+}
+
+function normalizeCountryCodeForPolicy(value) {
+  const code = String(value || '').trim().toUpperCase();
+  if (code === 'UK') return 'GB';
+  return /^[A-Z]{2}$/.test(code) ? code : '';
+}
+
+function collectIntermediateAirportCodes(leg, output) {
+  const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+  for (const segment of segments.slice(0, -1)) {
+    const code = String(segment?.to || '').trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(code)) output.add(code);
+  }
+}
+
+function legUsesExcludedCountry(leg, excluded, airportCountries) {
+  const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+  if (segments.length <= 1) return false;
+
+  return segments.slice(0, -1).some(segment => {
+    const directCountry = normalizeCountryCodeForPolicy(segment?.toCountry);
+    if (directCountry && excluded.has(directCountry)) return true;
+
+    const code = String(segment?.to || '').trim().toUpperCase();
+    const resolvedCountry = airportCountries.get(code) || '';
+    return resolvedCountry && excluded.has(resolvedCountry);
+  });
+}
+
+async function fetchAirportCountryCodes(codes) {
+  const normalizedCodes = [...new Set(
+    (Array.isArray(codes) ? codes : [])
+      .map(code => String(code || '').trim().toUpperCase())
+      .filter(code => /^[A-Z]{3}$/.test(code))
+  )].slice(0, 200);
+
+  const result = new Map();
+  if (!normalizedCodes.length) return result;
+
+  try {
+    const url = new URL(RYANAIR_AIRPORTS_URL);
+    url.searchParams.set('codes', normalizedCodes.join(','));
+
+    const response = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || !Array.isArray(data.airports)) return result;
+
+    for (const airport of data.airports) {
+      const code = String(airport?.iataCode || '').trim().toUpperCase();
+      const country = normalizeCountryCodeForPolicy(airport?.countryCode);
+      if (/^[A-Z]{3}$/.test(code) && country) result.set(code, country);
+    }
+  } catch {
+    // The segment-level country code still provides a best-effort hard filter.
+  }
+
+  return result;
 }
 
 function buildRyanairFinderPayload(input) {
