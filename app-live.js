@@ -44,7 +44,7 @@
       const result = data.result;
       if (!result || !Array.isArray(result.itineraries)) throw new Error('Kiwi non ha restituito un elenco di itinerari valido.');
 
-      liveResults = applyLocalPolicies(result.itineraries);
+      liveResults = applyLocalPolicies(result.itineraries.filter(item => !isHiddenCityItinerary(item)));
       if (!liveResults.length) {
         showMessage('Nessun volo compatibile', 'Kiwi ha risposto correttamente, ma nessun itinerario rispetta tutti i filtri selezionati.');
         return;
@@ -147,6 +147,38 @@
       children: count('children', 0),
       infants: count('infantsSeat', 0) + count('infantsLap', 0)
     };
+  }
+
+  function isHiddenCityItinerary(item) {
+    if (!item || typeof item !== 'object') return false;
+
+    const visit = (value, depth = 0) => {
+      if (depth > 8 || value === null || value === undefined) return false;
+
+      if (typeof value === 'string') {
+        const text = value.toLowerCase();
+        return text.includes('hidden city') ||
+          text.includes('hidden-city') ||
+          text.includes('città nascosta') ||
+          text.includes('citta nascosta') ||
+          text.includes('throwaway ticket');
+      }
+
+      if (Array.isArray(value)) return value.some(entry => visit(entry, depth + 1));
+
+      if (typeof value === 'object') {
+        return Object.entries(value).some(([key, entry]) => {
+          const normalizedKey = String(key).replace(/[\s_-]+/g, '').toLowerCase();
+          if (normalizedKey.includes('hiddencity') &&
+              (entry === true || entry === 1 || String(entry).toLowerCase() === 'true')) return true;
+          return visit(entry, depth + 1);
+        });
+      }
+
+      return false;
+    };
+
+    return visit(item);
   }
 
   function applyLocalPolicies(items) {
