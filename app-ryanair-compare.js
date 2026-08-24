@@ -10,6 +10,30 @@
   let refreshQueued = false;
   const bookingStore = new Map();
 
+  window.fly2Pricing = {
+    effectivePrice(item) {
+      const kiwiPrice = Number(item?.price);
+      const direct = latestMatches.get(itinerarySignature(item));
+      const directPrice = Number(direct?.totalPrice);
+      if (Number.isFinite(kiwiPrice) && Number.isFinite(directPrice)) return Math.min(kiwiPrice, directPrice);
+      if (Number.isFinite(directPrice)) return directPrice;
+      return Number.isFinite(kiwiPrice) ? kiwiPrice : Infinity;
+    },
+    directPrice(item) {
+      const direct = latestMatches.get(itinerarySignature(item));
+      const price = Number(direct?.totalPrice);
+      return Number.isFinite(price) ? price : null;
+    },
+    source(item) {
+      const kiwiPrice = Number(item?.price);
+      const direct = latestMatches.get(itinerarySignature(item));
+      const directPrice = Number(direct?.totalPrice);
+      return Number.isFinite(directPrice) && (!Number.isFinite(kiwiPrice) || directPrice < kiwiPrice)
+        ? 'Ryanair diretto'
+        : 'Kiwi';
+    }
+  };
+
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (resource, init = {}) => {
     const url = typeof resource === 'string' ? resource : resource?.url;
@@ -104,6 +128,7 @@
     });
     latestMatches = matched;
     queueRefresh();
+    window.setTimeout(() => window.fly2LiveResultsApi?.rerender?.(), 0);
   }
 
   function isExactSearch(request) {
