@@ -36,6 +36,8 @@
     new MutationObserver(queueRefresh).observe(content, { childList: true, subtree: true });
   }
 
+  const bookingModal = createBookingModal();
+
   async function compareIfUseful(items, request) {
     if (!request || !isExactSearch(request)) return;
     const ryanairItems = items.filter(allRyanair);
@@ -160,7 +162,7 @@
   function renderComparison(card, kiwi, direct) {
     $('.ryanair-price-compare', card)?.remove();
     $('.ryanair-self-transfer-note', card)?.remove();
-    $('.ryanair-segment-booking', card)?.remove();
+    $('.ryanair-booking-button', card)?.remove();
 
     const priceArea = $('.flight-card-head > div:first-child', card);
     if (priceArea) {
@@ -205,21 +207,138 @@
     if (existingOfficial) existingOfficial.style.display = 'none';
 
     if (Array.isArray(direct.bookingLinks) && direct.bookingLinks.length) {
-      const details = document.createElement('details');
-      details.className = 'ryanair-segment-booking';
-      details.innerHTML = `
-        <summary>Prenota su Ryanair ↗</summary>
-        <div class="ryanair-segment-links">
-          ${direct.bookingLinks.map(link => `
-            <a href="${escAttr(link.url)}" target="_blank" rel="noopener noreferrer">
-              <strong>${esc(link.label)}</strong>
-              <span>${esc(link.flightNumber || '')} · ${formatDate(link.departureAt)}</span>
-            </a>`).join('')}
-        </div>`;
+      const bookingItems = buildBookingItems(kiwi, direct);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ryanair-booking-button';
+      button.innerHTML = 'Prenota su Ryanair <span aria-hidden="true">↗</span>';
+      button.addEventListener('click', () => openBookingModal(bookingItems, direct));
       const kiwiLink = $('.book-link', foot);
-      if (kiwiLink) foot.insertBefore(details, kiwiLink);
-      else foot.appendChild(details);
+      if (kiwiLink) foot.insertBefore(button, kiwiLink);
+      else foot.appendChild(button);
     }
+  }
+
+  function buildBookingItems(kiwi, direct) {
+    const outboundSegments = kiwi.outbound?.segments || [];
+    const inboundSegments = kiwi.inbound?.segments || [];
+    const allSegments = [...outboundSegments, ...inboundSegments];
+    const cityMap = buildCityMap(kiwi);
+
+    return direct.bookingLinks.map((link, index) => {
+      const segment = allSegments[index] || {};
+      const from = String(segment.from || link.label?.split('→')?.[0] || '').trim();
+      const to = String(segment.to || link.label?.split('→')?.[1] || '').trim();
+      return {
+        url: link.url,
+        from,
+        to,
+        fromCity: cityMap.get(from) || from,
+        toCity: cityMap.get(to) || to,
+        flightNumber: segment.flightNumber || link.flightNumber || '',
+        departureAt: segment.departureTime || link.departureAt || '',
+        arrivalAt: segment.arrivalTime || '',
+        direction: index < outboundSegments.length ? 'Andata' : 'Ritorno'
+      };
+    });
+  }
+
+  function buildCityMap(kiwi) {
+    const map = new Map();
+    [kiwi.outbound, kiwi.inbound].filter(Boolean).forEach(leg => {
+      const route = Array.isArray(leg.route) ? leg.route : [];
+      const segments = Array.isArray(leg.segments) ? leg.segments : [];
+      segments.forEach((segment, index) => {
+        const fromName = route[index];
+        const toName = route[index + 1];
+        if (segment?.from && fromName) map.set(String(segment.from).trim(), cleanPlaceName(fromName));
+        if (segment?.to && toName) map.set(String(segment.to).trim(), cleanPlaceName(toName));
+      });
+    });
+    return map;
+  }
+
+  function cleanPlaceName(value) {
+    return String(value || '').replace(/\s*\([A-Z]{3}\)\s*$/, '').replace(/,\s*[A-Z]{2}\s*$/, '').trim();
+  }
+
+  function createBookingModal() {
+    const modal = document.createElement('div');
+    modal.className = 'ryanair-booking-modal hidden';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="ryanair-booking-backdrop" data-ryanair-close></div>
+      <section class="ryanair-booking-dialog" role="dialog" aria-modal="true" aria-labelledby="ryanairBookingTitle">
+        <div class="ryanair-booking-head">
+          <div>
+            <span class="ryanair-booking-kicker">Prenotazione diretta</span>
+            <h2 id="ryanairBookingTitle">Prenota i segmenti su Ryanair</h2>
+          </div>
+          <button type="button" class="ryanair-booking-close" data-ryanair-close aria-label="Chiudi">×</button>
+        </div>
+        <p class="ryanair-booking-intro">Ogni tratto è un biglietto separato. Aprendo Ryanair troverai aeroporto, data e passeggeri già impostati: verifica il volo indicato prima del pagamento.</p>
+        <div class="ryanair-booking-list"></div>
+      </section>`;
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', event => {
+      if (event.target.closest('[data-ryanair-close]')) closeBookingModal();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeBookingModal();
+    });
+
+    return modal;
+  }
+
+  function openBookingModal(items, direct) {
+    const list = $('.ryanair-booking-list', bookingModal);
+    if (!list) return;
+
+    let currentDirection = '';
+    list.innerHTML = items.map((item, index) => {
+      const directionTitle = item.direction !== currentDirection
+        ? (() => { currentDirection = item.direction; return `<h3 class="ryanair-booking-direction">${esc(item.direction)}</h3>`; })()
+        : '';
+      const timeText = item.departureAt
+        ? `${formatDate(item.departureAt)} · ${formatTime(item.departureAt)}`
+        : '';
+      return `${directionTitle}
+        <article class="ryanair-booking-row">
+          <div class="ryanair-booking-step">${index + 1}</div>
+          <div class="ryanair-booking-route">
+            <strong>${esc(item.fromCity)} (${esc(item.from)}) → ${esc(item.toCity)} (${esc(item.to)})</strong>
+            <span>${esc(item.flightNumber)}${timeText ? ` · ${esc(timeText)}` : ''}</span>
+          </div>
+          <a class="ryanair-open-link" href="${escAttr(item.url)}" target="_blank" rel="noopener noreferrer">
+            Apri su Ryanair ↗
+          </a>
+        </article>`;
+    }).join('');
+
+    const intro = $('.ryanair-booking-intro', bookingModal);
+    if (intro) {
+      intro.innerHTML = direct.selfTransfer
+        ? '<strong>Self-transfer:</strong> questi segmenti sono prenotazioni separate. Rotta, data e passeggeri saranno già compilati su Ryanair; controlla il numero di volo e l’orario prima di acquistare.'
+        : 'Rotta, data e passeggeri saranno già compilati su Ryanair; controlla il numero di volo e l’orario prima di acquistare.';
+    }
+
+    bookingModal.classList.remove('hidden');
+    bookingModal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('ryanair-modal-open');
+    $('.ryanair-booking-close', bookingModal)?.focus();
+  }
+
+  function closeBookingModal() {
+    bookingModal.classList.add('hidden');
+    bookingModal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('ryanair-modal-open');
+  }
+
+  function formatTime(value) {
+    const text = String(value || '');
+    const match = text.match(/T(\d{2}:\d{2})/);
+    return match ? match[1] : '';
   }
 
   function formatPrice(value) {
