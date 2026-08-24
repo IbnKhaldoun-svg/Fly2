@@ -29,7 +29,7 @@
       const direct = latestMatches.get(itinerarySignature(item));
       const directPrice = Number(direct?.totalPrice);
       return Number.isFinite(directPrice) && (!Number.isFinite(kiwiPrice) || directPrice < kiwiPrice)
-        ? 'Ryanair diretto'
+        ? 'Ryanair'
         : 'Kiwi';
     }
   };
@@ -378,7 +378,7 @@
       box.className = 'ryanair-price-compare';
       box.innerHTML = `
         <div class="ryanair-direct-price">
-          <span>Ryanair diretto</span>
+          <span>Prezzo Ryanair</span>
           <strong>${formatPrice(directPrice)}</strong>
         </div>
         <div class="ryanair-price-note">
