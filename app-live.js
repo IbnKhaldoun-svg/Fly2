@@ -21,16 +21,66 @@
   };
 
   const officialAirlineSites = {
+    // Low-cost / Europa
     FR: 'https://www.ryanair.com/',
     U2: 'https://www.easyjet.com/',
     W6: 'https://www.wizzair.com/', W4: 'https://www.wizzair.com/', W9: 'https://www.wizzair.com/',
     VY: 'https://www.vueling.com/', V7: 'https://www.volotea.com/',
-    AZ: 'https://www.ita-airways.com/', LH: 'https://www.lufthansa.com/', LX: 'https://www.swiss.com/',
-    AF: 'https://www.airfrance.com/', KL: 'https://www.klm.com/', IB: 'https://www.iberia.com/',
-    BA: 'https://www.britishairways.com/', TP: 'https://www.flytap.com/', TK: 'https://www.turkishairlines.com/',
+    HV: 'https://www.transavia.com/', TO: 'https://www.transavia.com/',
+    EW: 'https://www.eurowings.com/', DY: 'https://www.norwegian.com/',
+    PC: 'https://www.flypgs.com/',
+
+    // Gruppi europei / network carrier
+    AZ: 'https://www.ita-airways.com/',
+    LH: 'https://www.lufthansa.com/', LX: 'https://www.swiss.com/', OS: 'https://www.austrian.com/',
+    SN: 'https://www.brusselsairlines.com/',
+    AF: 'https://www.airfrance.com/', KL: 'https://www.klm.com/',
+    IB: 'https://www.iberia.com/', BA: 'https://www.britishairways.com/',
+    TP: 'https://www.flytap.com/', TK: 'https://www.turkishairlines.com/',
+    LO: 'https://www.lot.com/', AY: 'https://www.finnair.com/',
+    SK: 'https://www.flysas.com/', A3: 'https://en.aegeanair.com/',
+    JU: 'https://www.airserbia.com/', OU: 'https://www.croatiaairlines.com/',
+    UX: 'https://www.aireuropa.com/', FI: 'https://www.icelandair.com/',
+
+    // Marocco / Nord Africa
     AT: 'https://www.royalairmaroc.com/it-it/booking/book-a-flight',
-    HV: 'https://www.transavia.com/', EW: 'https://www.eurowings.com/', OS: 'https://www.austrian.com/',
-    DY: 'https://www.norwegian.com/', PC: 'https://www.flypgs.com/', SN: 'https://www.brusselsairlines.com/'
+    '3O': 'https://www.airarabia.com/it/home',
+    G9: 'https://www.airarabia.com/it/home',
+    E5: 'https://www.airarabia.com/it/home',
+    TU: 'https://www.tunisair.com/',
+    AH: 'https://airalgerie.dz/',
+
+    // Medio Oriente
+    QR: 'https://www.qatarairways.com/',
+    EK: 'https://www.emirates.com/',
+    EY: 'https://www.etihad.com/',
+    SV: 'https://www.saudia.com/'
+  };
+
+  const officialAirlineSitesByName = {
+    'air arabia maroc': 'https://www.airarabia.com/it/home',
+    'air arabia': 'https://www.airarabia.com/it/home',
+    'royal air maroc': 'https://www.royalairmaroc.com/it-it/booking/book-a-flight',
+    'ryanair': 'https://www.ryanair.com/',
+    'easyjet': 'https://www.easyjet.com/',
+    'wizz air': 'https://www.wizzair.com/',
+    'vueling': 'https://www.vueling.com/',
+    'volotea': 'https://www.volotea.com/',
+    'ita airways': 'https://www.ita-airways.com/',
+    'lufthansa': 'https://www.lufthansa.com/',
+    'air france': 'https://www.airfrance.com/',
+    'klm': 'https://www.klm.com/',
+    'iberia': 'https://www.iberia.com/',
+    'british airways': 'https://www.britishairways.com/',
+    'tap air portugal': 'https://www.flytap.com/',
+    'turkish airlines': 'https://www.turkishairlines.com/',
+    'transavia': 'https://www.transavia.com/',
+    'eurowings': 'https://www.eurowings.com/',
+    'swiss': 'https://www.swiss.com/',
+    'austrian airlines': 'https://www.austrian.com/',
+    'norwegian': 'https://www.norwegian.com/',
+    'pegasus airlines': 'https://www.flypgs.com/',
+    'brussels airlines': 'https://www.brusselsairlines.com/'
   };
 
   let liveResults = [];
@@ -901,7 +951,10 @@
     list.innerHTML = segments.map((segment, index) => {
       const carrier = String(segment?.carrier || '').trim().toUpperCase();
       const airline = segment?.carrierName || carrier || 'Compagnia';
-      const officialHome = officialAirlineSites[carrier] || null;
+      const officialHome =
+        officialAirlineSites[carrier] ||
+        officialAirlineSitesByName[norm(airline)] ||
+        null;
       const officialUrl = carrier === 'FR'
         ? buildRyanairBookingUrl(segment, passengers)
         : officialHome;
