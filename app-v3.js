@@ -7,6 +7,11 @@
     liveStyle.href = './styles-live.css';
     document.head.appendChild(liveStyle);
 
+    const polishStyle = document.createElement('link');
+    polishStyle.rel = 'stylesheet';
+    polishStyle.href = './styles-polish.css';
+    document.head.appendChild(polishStyle);
+
     const style = document.createElement('style');
     style.textContent = `
       .back-to-top {
@@ -67,6 +72,12 @@
 
     const live = document.createElement('script');
     live.src = './app-live.js';
+    live.onload = () => {
+      const polish = document.createElement('script');
+      polish.src = './app-polish.js';
+      polish.onerror = () => console.error('Impossibile caricare i miglioramenti UI di Fly2.');
+      document.head.appendChild(polish);
+    };
     live.onerror = () => console.error('Impossibile caricare la ricerca voli live di Fly2.');
     document.head.appendChild(live);
   };
