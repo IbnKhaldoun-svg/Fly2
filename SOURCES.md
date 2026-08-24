@@ -52,6 +52,9 @@ Stato: **integrazione preparata in Fly2, disattivata finché non viene configura
 - Più di 300 compagnie disponibili complessivamente.
 - easyJet è esplicitamente disponibile e easyJet stessa include Duffel tra i propri canali autorizzati.
 - I prezzi in test mode non sono reali; per prezzi live serve un account verificato e un live access token.
+- L'attivazione live richiede verifica e KYC: tipo di business, dati personali, informazioni sull'attività e verifica delle informazioni fornite.
+- I termini Duffel autorizzano l'uso della piattaforma live per le proprie **business operations**. Non è stata trovata documentazione ufficiale che confermi l'accettazione di un progetto puramente personale/hobby senza attività economica.
+- Per un progetto personale, prima di completare l'onboarding conviene chiedere conferma direttamente a Duffel indicando che Fly2 è un comparatore personale/non commerciale e che l'uso previsto iniziale è solo ricerca prezzi, senza vendita di biglietti.
 - Pricing pay-as-you-go: nessun costo iniziale, ma esistono fee sugli ordini e una fee per eccesso di ricerche oltre il rapporto search-to-book previsto.
 
 Per limitare il rischio di costi, Fly2 interroga Duffel automaticamente solo per **date precise**. Nelle ricerche Paese, Duffel viene interrogato solo dopo che l'utente sceglie una città.
