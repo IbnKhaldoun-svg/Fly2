@@ -12,6 +12,11 @@
     polishStyle.href = './styles-polish.css';
     document.head.appendChild(polishStyle);
 
+    const detailStyle = document.createElement('link');
+    detailStyle.rel = 'stylesheet';
+    detailStyle.href = './styles-result-details.css';
+    document.head.appendChild(detailStyle);
+
     const style = document.createElement('style');
     style.textContent = `
       .back-to-top {
@@ -70,16 +75,22 @@
     window.addEventListener('scroll', updateVisibility, { passive: true });
     updateVisibility();
 
-    const live = document.createElement('script');
-    live.src = './app-live.js';
-    live.onload = () => {
-      const polish = document.createElement('script');
-      polish.src = './app-polish.js';
-      polish.onerror = () => console.error('Impossibile caricare i miglioramenti UI di Fly2.');
-      document.head.appendChild(polish);
+    const details = document.createElement('script');
+    details.src = './app-result-details.js';
+    details.onload = () => {
+      const live = document.createElement('script');
+      live.src = './app-live.js';
+      live.onload = () => {
+        const polish = document.createElement('script');
+        polish.src = './app-polish.js';
+        polish.onerror = () => console.error('Impossibile caricare i miglioramenti UI di Fly2.');
+        document.head.appendChild(polish);
+      };
+      live.onerror = () => console.error('Impossibile caricare la ricerca voli live di Fly2.');
+      document.head.appendChild(live);
     };
-    live.onerror = () => console.error('Impossibile caricare la ricerca voli live di Fly2.');
-    document.head.appendChild(live);
+    details.onerror = () => console.error('Impossibile caricare i dettagli di destinazioni e compagnie.');
+    document.head.appendChild(details);
   };
   core.onerror = () => console.error('Impossibile caricare il motore dell’interfaccia Fly2.');
   document.head.appendChild(core);
