@@ -369,18 +369,90 @@
     const bookingKey = itineraryMergeKey(item) || `booking-${index}-${Date.now()}`;
     bookingStore.set(bookingKey, item);
 
-    return `<article class="flight-card" data-itinerary-key="${escAttr(bookingKey)}">
-      <div class="flight-card-head">
-        <div><span class="flight-rank">${index === 0 ? 'Prima opzione' : `Opzione ${index + 1}`}</span><span class="flight-source">${esc(item.source || 'Kiwi')}</span><strong class="flight-price">${esc(item.priceFormatted || (item.price != null ? `${item.price} EUR` : 'Prezzo non disponibile'))}</strong></div>
+    return `<article class="flight-card compact-flight-card" data-itinerary-key="${escAttr(bookingKey)}">
+      <div class="flight-card-head compact-flight-head">
+        <div>
+          <span class="flight-rank">${index === 0 ? 'Prima opzione' : `Opzione ${index + 1}`}</span>
+          <span class="flight-source">${esc(item.source || 'Kiwi')}</span>
+          <strong class="flight-price">${esc(item.priceFormatted || (item.price != null ? `${item.price} EUR` : 'Prezzo non disponibile'))}</strong>
+        </div>
         <div class="flight-total">Durata totale <strong>${duration(item.totalDurationSeconds)}</strong></div>
       </div>
-      ${renderLeg('Andata', item.outbound)}
-      ${item.inbound ? renderLeg('Ritorno', item.inbound) : ''}
-      <div class="flight-foot">
+
+      <div class="flight-compact-summary">
+        ${renderLegSummary('Andata', item.outbound)}
+        ${item.inbound ? renderLegSummary('Ritorno', item.inbound) : ''}
+      </div>
+
+      <details class="flight-details">
+        <summary>
+          <span>Dettagli volo</span>
+          <span class="flight-details-chevron">⌄</span>
+        </summary>
+        <div class="flight-details-body">
+          ${renderLeg('Andata', item.outbound)}
+          ${item.inbound ? renderLeg('Ritorno', item.inbound) : ''}
+        </div>
+      </details>
+
+      <div class="flight-foot compact-flight-foot">
         <span>${esc(bagText)}</span>
         <button type="button" class="unified-booking-button" data-booking-key="${escAttr(bookingKey)}">Prenota <span aria-hidden="true">↗</span></button>
       </div>
     </article>`;
+  }
+
+  function renderLegSummary(label, leg) {
+    if (!leg) return '';
+    const segments = Array.isArray(leg.segments) ? leg.segments : [];
+    const route = segments.length
+      ? [segments[0]?.from, ...segments.map(segment => segment?.to)].filter(Boolean).join(' → ')
+      : (leg.route || []).join(' → ');
+    const stopsText = leg.stops === 0 ? 'Diretto' : `${leg.stops} ${leg.stops === 1 ? 'scalo' : 'scali'}`;
+    const longLayovers = renderLongLayoverChips(leg);
+
+    return `
+      <section class="flight-compact-leg">
+        <div class="flight-compact-leg-main">
+          <strong class="flight-compact-label">${esc(label)}</strong>
+          <span class="flight-compact-route">${esc(route)}</span>
+          <span class="flight-compact-meta">${esc(stopsText)} · ${duration(leg.durationSeconds)}</span>
+        </div>
+        <div class="flight-compact-times">
+          <strong>${dateTime(leg.departureTime)}</strong>
+          <span>→</span>
+          <strong>${dateTime(leg.arrivalTime)}</strong>
+        </div>
+        ${longLayovers ? `<div class="flight-compact-layovers">${longLayovers}</div>` : ''}
+      </section>`;
+  }
+
+  function renderLongLayoverChips(leg) {
+    const segments = Array.isArray(leg?.segments) ? leg.segments : [];
+    if (segments.length < 2) return '';
+
+    return segments.slice(0, -1).map((segment, index) => {
+      const next = segments[index + 1];
+      const minutes = layoverMinutes(segment?.arrivalTime, next?.departureTime);
+      if (!Number.isFinite(minutes) || minutes < 360) return '';
+
+      const code = String(segment?.to || next?.from || '').trim().toUpperCase();
+      if (!code) return '';
+
+      const key = `${code}|${String(segment?.arrivalTime || '')}|${String(next?.departureTime || '')}`;
+      layoverStore.set(key, {
+        code,
+        minutes,
+        arrivalTime: segment?.arrivalTime || '',
+        departureTime: next?.departureTime || '',
+        fallbackCity: segment?.toCity || next?.fromCity || '',
+        fallbackAirport: segment?.toName || next?.fromName || '',
+        fallbackCountry: segment?.toCountry || next?.fromCountry || ''
+      });
+
+      const city = segment?.toCity && norm(segment.toCity) !== norm(code) ? segment.toCity : code;
+      return `<button type="button" class="compact-layover-chip long-layover-trigger" data-layover-key="${escAttr(key)}">Scalo lungo ${esc(city)} · ${esc(minutesToHuman(minutes))}</button>`;
+    }).join('');
   }
 
   function renderLeg(label, leg) {
