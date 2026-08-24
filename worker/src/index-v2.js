@@ -69,6 +69,17 @@ export default {
       }
     }
 
+    if (url.pathname === '/ryanair-country' && request.method === 'POST') {
+      try {
+        enforceAllowedOrigin(request);
+        const input = await request.json();
+        validateRyanairCountry(input);
+        return await searchRyanairCountry(input, cors);
+      } catch (error) {
+        return json({ ok: false, error: safeError(error) }, 400, cors);
+      }
+    }
+
     if (url.pathname === '/ryanair-compare' && request.method === 'POST') {
       try {
         enforceAllowedOrigin(request);
@@ -80,7 +91,7 @@ export default {
       }
     }
 
-    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /ryanair-compare'] }, 404, cors);
+    return json({ ok: false, error: 'Endpoint non trovato.', endpoints: ['GET /health', 'GET /tools', 'GET /demo', 'GET /airports?codes=MAD,KRK', 'POST /search', 'POST /ryanair-country', 'POST /ryanair-compare'] }, 404, cors);
   }
 };
 
@@ -100,6 +111,106 @@ async function searchFlights(input, cors) {
   }
 }
 
+
+async function searchRyanairCountry(input, cors) {
+  const query = String(input.destinationCountryName || input.destinationCountryCode || '').trim();
+  const airportUrl = new URL(RYANAIR_AIRPORTS_URL);
+  airportUrl.searchParams.set('q', query);
+
+  const airportResponse = await fetch(airportUrl.toString(), {
+    headers: { 'Accept': 'application/json' }
+  });
+  const airportData = await airportResponse.json().catch(() => null);
+  if (!airportResponse.ok || !airportData) {
+    throw new Error(`Elenco aeroporti Ryanair non disponibile (HTTP ${airportResponse.status}).`);
+  }
+
+  const requestedCountryCode = String(input.destinationCountryCode || '').trim().toUpperCase();
+  const requestedCountryName = String(input.destinationCountryName || '').trim().toLowerCase();
+  const locations = Array.isArray(airportData.locations) ? airportData.locations : [];
+  const country = locations.find(item => {
+    if (item?.type !== 'country') return false;
+    if (requestedCountryCode && String(item.countryCode || '').toUpperCase() === requestedCountryCode) return true;
+    return requestedCountryName && String(item.countryName || '').trim().toLowerCase() === requestedCountryName;
+  });
+
+  if (!country || !Array.isArray(country.airportCodes) || !country.airportCodes.length) {
+    throw new Error('Non ho trovato gli aeroporti Ryanair del Paese selezionato.');
+  }
+
+  const origin = String(input.originIata || '').trim().toUpperCase();
+  const airportCodes = [...new Set(country.airportCodes)]
+    .map(code => String(code).toUpperCase())
+    .filter(code => /^[A-Z]{3}$/.test(code) && code !== origin)
+    .slice(0, 80);
+
+  let cursor = 0;
+  let completed = 0;
+  let failed = 0;
+  const itineraries = [];
+
+  const worker = async () => {
+    while (cursor < airportCodes.length) {
+      const index = cursor++;
+      const destinationIata = airportCodes[index];
+      try {
+        const payload = buildRyanairFinderPayload({ ...input, destinationIata });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 50_000);
+        try {
+          const response = await fetch(RYANAIR_FINDER_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+          const text = await response.text();
+          let data = null;
+          try { data = text ? JSON.parse(text) : null; } catch {}
+          if (!response.ok) throw new Error(data?.error?.message || `HTTP ${response.status}`);
+
+          const normalized = Array.isArray(data?.itineraries)
+            ? data.itineraries.map(item => normalizeRyanairItinerary(item, payload)).filter(Boolean)
+            : [];
+          itineraries.push(...normalized);
+        } finally {
+          clearTimeout(timeout);
+        }
+      } catch {
+        failed += 1;
+      } finally {
+        completed += 1;
+      }
+    }
+  };
+
+  const workerCount = Math.min(2, Math.max(1, airportCodes.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  const unique = new Map();
+  for (const item of itineraries) {
+    const key = item.signature || JSON.stringify(item);
+    const existing = unique.get(key);
+    if (!existing || Number(item.totalPrice) < Number(existing.totalPrice)) unique.set(key, item);
+  }
+
+  const sorted = [...unique.values()].sort((a, b) => Number(a.totalPrice) - Number(b.totalPrice));
+
+  return json({
+    ok: true,
+    provider: 'Ryanair direct country search',
+    source: 'ryanair-flight-finder-v2',
+    country: {
+      code: country.countryCode || requestedCountryCode,
+      name: country.countryName || input.destinationCountryName,
+      airportCount: airportCodes.length
+    },
+    checkedAirports: completed,
+    failedAirports: failed,
+    partialResults: failed > 0,
+    itineraries: sorted
+  }, 200, cors);
+}
 
 async function compareRyanair(input, cors) {
   const payload = buildRyanairFinderPayload(input);
@@ -195,19 +306,36 @@ function buildRyanairFinderPayload(input) {
     };
   }
 
+  const outboundMode = input.departureDateTo
+    ? 'range'
+    : Number(input.departureDateFlexDays || 0) > 0
+      ? 'flexible'
+      : 'fixed';
+  const inboundMode = input.returnDateTo
+    ? 'range'
+    : Number(input.returnDateFlexDays || 0) > 0
+      ? 'flexible'
+      : 'fixed';
+
   return {
     ...common,
     tripType: input.returnDate ? 'round-trip' : 'one-way',
     searchMode: 'selected-dates',
     outbound: {
-      mode: 'fixed',
+      mode: outboundMode,
       startDate: input.departureDate,
-      flexibilityDays: 0
+      endDate: input.departureDateTo || undefined,
+      flexibilityDays: outboundMode === 'flexible'
+        ? clampInt(input.departureDateFlexDays, 0, 14, 0)
+        : 0
     },
     inbound: input.returnDate ? {
-      mode: 'fixed',
+      mode: inboundMode,
       startDate: input.returnDate,
-      flexibilityDays: 0
+      endDate: input.returnDateTo || undefined,
+      flexibilityDays: inboundMode === 'flexible'
+        ? clampInt(input.returnDateFlexDays, 0, 14, 0)
+        : 0
     } : undefined
   };
 }
@@ -355,6 +483,18 @@ function wallClockMinute(value) {
   const text = String(value || '').trim();
   const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
   return match ? `${match[1]}T${match[2]}` : text.slice(0, 16);
+}
+
+function validateRyanairCountry(input) {
+  if (!input || typeof input !== 'object') throw new Error('Ricerca Paese Ryanair non valida.');
+  if (!/^[A-Z]{3}$/i.test(String(input.originIata || ''))) {
+    throw new Error('Per la ricerca Paese serve un aeroporto di partenza preciso.');
+  }
+  if (!String(input.destinationCountryName || input.destinationCountryCode || '').trim()) {
+    throw new Error('Paese di destinazione non valido.');
+  }
+  if (!isIsoDate(input.departureDate)) throw new Error('Data di partenza non valida.');
+  if (input.returnDate && !isIsoDate(input.returnDate)) throw new Error('Data di ritorno non valida.');
 }
 
 function validateRyanairCompare(input) {
