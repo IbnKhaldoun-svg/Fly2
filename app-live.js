@@ -5,6 +5,8 @@
   const COMPARE_API = 'https://fly2-api.fly2-search.workers.dev/ryanair-compare';
   const COUNTRY_DIRECT_API = 'https://fly2-api.fly2-search.workers.dev/ryanair-country';
   const AIRPORT_META_API = 'https://fly2-api.fly2-search.workers.dev/airports';
+  const HEALTH_API = 'https://fly2-api.fly2-search.workers.dev/health';
+  const DUFFEL_API = 'https://fly2-api.fly2-search.workers.dev/duffel-search';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -96,6 +98,7 @@
   let liveResults = [];
   let preferredCodes = [];
   let countrySearchContext = null;
+  let providerHealthPromise = null;
   const bookingStore = new Map();
   const bookingModal = createUnifiedBookingModal();
   const detailsStore = new Map();
@@ -184,6 +187,10 @@
       $('#resultSortWrap').classList.remove('hidden');
       $('#resultSort').value = 'Predefinito';
       renderSorted();
+
+      // Duffel è una sorgente opzionale: la interroghiamo solo se configurata
+      // e solo sulle date precise, così non moltiplichiamo le ricerche live.
+      searchDuffelSupplement(payload).catch(() => {});
     } catch (error) {
       showMessage('Ricerca non riuscita', error instanceof Error ? error.message : String(error));
     }
@@ -396,6 +403,55 @@
     };
   }
 
+  async function getProviderHealth() {
+    if (!providerHealthPromise) {
+      providerHealthPromise = fetch(HEALTH_API)
+        .then(response => response.json())
+        .catch(() => null);
+    }
+    return providerHealthPromise;
+  }
+
+  function canSearchDuffel(payload) {
+    if (!payload?.originIata || !payload?.destinationIata || !payload?.departureDate) return false;
+    if (payload.departureDateTo || payload.returnDateTo) return false;
+    if (Number(payload.departureDateFlexDays || 0) || Number(payload.returnDateFlexDays || 0)) return false;
+    if (payload.searchMode === 'cheapest' || payload.flyDays || payload.returnFlyDays) return false;
+    return true;
+  }
+
+  async function searchDuffelSupplement(payload) {
+    if (!canSearchDuffel(payload)) return;
+
+    const health = await getProviderHealth();
+    const providers = Array.isArray(health?.providers) ? health.providers : [];
+    const duffel = providers.find(provider => provider?.id === 'duffel');
+    if (!duffel?.configured) return;
+
+    const response = await fetch(DUFFEL_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        originIata: payload.originIata,
+        destinationIata: payload.destinationIata,
+        departureDate: payload.departureDate,
+        returnDate: payload.returnDate || null,
+        adults: payload.adults || 1,
+        children: payload.children || 0,
+        infants: payload.infants || 0,
+        cabinClass: payload.cabinClass || 'M',
+        maxStopovers: payload.maxStopovers ?? 1,
+        excludeAirlines: payload.excludeAirlines || [],
+        excludeStopoverCountries: payload.excludeStopoverCountries || []
+      })
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok || !Array.isArray(data.itineraries) || !data.itineraries.length) return;
+    mergeExternalResults(data.itineraries);
+  }
+
+
   function mergeItemsLocal(items) {
     const byKey = new Map();
     for (const item of items) {
@@ -533,6 +589,21 @@
     $('#resultSortWrap').classList.remove('hidden');
     $('#resultSort').value = 'Prezzo';
     renderSorted();
+
+    // Per le ricerche Paese evitiamo di interrogare Duffel per tutti gli
+    // aeroporti in anticipo. La verifica parte solo quando l'utente apre una
+    // città, e solo se le date sono precise.
+    if (Array.isArray(group.airportCodes)) {
+      group.airportCodes.slice(0, 3).forEach(destinationIata => {
+        searchDuffelSupplement({
+          ...countrySearchContext.payload,
+          destination: destinationIata,
+          destinationType: 'airport',
+          destinationIata,
+          destinationCountryCode: ''
+        }).catch(() => {});
+      });
+    }
   }
 
 
@@ -853,7 +924,7 @@
     const content = $('#resultContent');
     const hasDirect = items.some(item => item?.source && item.source !== 'Kiwi');
     const sourceText = hasDirect
-      ? 'Risultati combinati da Kiwi.com e fonti dirette verificate.'
+      ? 'Risultati combinati da Kiwi.com e altre fonti verificate.'
       : 'Prezzi e disponibilità ricevuti da Kiwi.com al momento della ricerca.';
 
     const cheapest = items.reduce((best, item) => {
