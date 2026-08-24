@@ -544,7 +544,12 @@
       ? `Centro di ${city}${countryName ? `, ${countryName}` : ''}`
       : `Centro città vicino a ${airportName} ${code}`;
 
-    const directionsUrl = googleMapsDirections(airportQuery, centerQuery);
+    const recommendedDeparture = addWallClockHours(layover.arrivalTime, 1);
+    const directionsUrl = googleMapsDirectionsAtTime(
+      airportQuery,
+      centerQuery,
+      recommendedDeparture?.iso || ''
+    );
     const thingsUrl = googleMapsSearch(
       city
         ? `attrazioni turistiche a ${city}${countryName ? `, ${countryName}` : ''}`
@@ -559,7 +564,6 @@
       `ristoranti vicino a ${airportName}${city ? `, ${city}` : ''}${countryName ? `, ${countryName}` : ''}`
     );
 
-    const recommendedDeparture = addWallClockHours(layover.arrivalTime, 1);
     const recommendedText = recommendedDeparture
       ? `${recommendedDeparture.date} alle ${recommendedDeparture.time}`
       : '';
@@ -579,7 +583,7 @@
       <div class="layover-guide-grid">
         <a href="${escAttr(directionsUrl)}" target="_blank" rel="noopener noreferrer">
           <strong>Raggiungi il centro</strong>
-          <span>${esc(airportName)} → ${esc(city ? `centro di ${city}` : 'centro città')}</span>
+          <span>${esc(airportName)} → ${esc(city ? `centro di ${city}` : 'centro città')}${recommendedText ? ` · partenza ${esc(recommendedText)}` : ''}</span>
         </a>
         <a href="${escAttr(thingsUrl)}" target="_blank" rel="noopener noreferrer">
           <strong>Cosa vedere e fare</strong>
@@ -623,14 +627,39 @@
     };
   }
 
-  function googleMapsDirections(origin, destination) {
-    const params = new URLSearchParams({
-      api: '1',
-      origin,
-      destination,
-      travelmode: 'transit'
-    });
-    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  function googleMapsDirectionsAtTime(origin, destination, localDateTime) {
+    const stamp = mapsLocalWallClockStamp(localDateTime);
+    if (!stamp) {
+      const params = new URLSearchParams({
+        api: '1',
+        origin,
+        destination,
+        travelmode: 'transit'
+      });
+      return `https://www.google.com/maps/dir/?${params.toString()}`;
+    }
+
+    const from = encodeURIComponent(origin);
+    const to = encodeURIComponent(destination);
+
+    // Formato interno usato dalla UI di Google Maps:
+    // !6e0 = parti alle, !7e2 = interpreta l'orario come locale,
+    // !8j = data/ora, !3e3 = trasporto pubblico.
+    return `https://www.google.com/maps/dir/${from}/${to}/data=!4m6!4m5!2m3!6e0!7e2!8j${stamp}!3e3`;
+  }
+
+  function mapsLocalWallClockStamp(value) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!match) return null;
+
+    return Math.floor(Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      0
+    ) / 1000);
   }
 
   function googleMapsSearch(query) {
