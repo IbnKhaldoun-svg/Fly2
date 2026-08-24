@@ -2,6 +2,11 @@
   const core = document.createElement('script');
   core.src = './app-v3-core.js';
   core.onload = () => {
+    const liveStyle = document.createElement('link');
+    liveStyle.rel = 'stylesheet';
+    liveStyle.href = './styles-live.css';
+    document.head.appendChild(liveStyle);
+
     const style = document.createElement('style');
     style.textContent = `
       .back-to-top {
@@ -29,11 +34,7 @@
         transition: opacity .18s ease, transform .18s ease, visibility .18s ease, background .18s ease;
         backdrop-filter: blur(8px);
       }
-      .back-to-top.visible {
-        opacity: 1;
-        visibility: visible;
-        transform: translateY(0);
-      }
+      .back-to-top.visible { opacity: 1; visibility: visible; transform: translateY(0); }
       .back-to-top:hover { background: #e6f2ef; }
       .back-to-top .back-to-top-arrow { font-size: 17px; line-height: 1; }
       @media (max-width: 520px) {
@@ -48,9 +49,7 @@
         }
         .back-to-top-label { display: none; }
       }
-      @media (prefers-reduced-motion: reduce) {
-        .back-to-top { transition: none; }
-      }
+      @media (prefers-reduced-motion: reduce) { .back-to-top { transition: none; } }
     `;
     document.head.appendChild(style);
 
@@ -61,16 +60,15 @@
     button.innerHTML = '<span class="back-to-top-arrow" aria-hidden="true">↑</span><span class="back-to-top-label">Torna su</span>';
     document.body.appendChild(button);
 
-    const updateVisibility = () => {
-      button.classList.toggle('visible', window.scrollY > 520);
-    };
-
-    button.addEventListener('click', () => {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
+    const updateVisibility = () => button.classList.toggle('visible', window.scrollY > 520);
+    button.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
     window.addEventListener('scroll', updateVisibility, { passive: true });
     updateVisibility();
+
+    const live = document.createElement('script');
+    live.src = './app-live.js';
+    live.onerror = () => console.error('Impossibile caricare la ricerca voli live di Fly2.');
+    document.head.appendChild(live);
   };
   core.onerror = () => console.error('Impossibile caricare il motore dell’interfaccia Fly2.');
   document.head.appendChild(core);
