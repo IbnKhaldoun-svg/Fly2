@@ -519,7 +519,7 @@
         <strong>Ricerca aeroporto per aeroporto</strong>
         <span>${completed} / ${total} aeroporti commerciali controllati</span>
         <div class="country-progress-track"><span style="width:${total ? Math.round(completed / total * 100) : 0}%"></span></div>
-        <small>${foundCities ? `${foundCities} destinazioni con risultati trovate finora.` : 'Confronto Kiwi e fonti dirette disponibili per ogni aeroporto commerciale.'}</small>
+        <small>${foundCities ? `${foundCities} destinazioni con risultati trovate finora.` : 'Confronto Kiwi e altre fonti disponibili per ogni aeroporto commerciale.'}</small>
       </div>`;
     $('#resultSection').classList.remove('hidden');
   }
