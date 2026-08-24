@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f6f1" />
+  <meta name="description" content="Fly2 — ricerca voli semplice, mobile-first e senza prezzi inventati." />
+  <title>Fly2</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Fly2 home">
+        <span class="brand-mark" aria-hidden="true">✈</span>
+        <span>Fly2</span>
+      </a>
+      <button class="icon-button" id="openHelp" aria-label="Informazioni">?</button>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Voli, senza complicazioni</p>
+        <h1>Dove vuoi andare?</h1>
+        <p>Imposta il viaggio in modo semplice. Fly2 non mostrerà mai prezzi o disponibilità inventati.</p>
+      </section>
+
+      <section class="search-card" aria-label="Ricerca voli">
+        <div class="segmented" role="group" aria-label="Tipo di viaggio">
+          <button class="segment active" type="button" data-trip="roundtrip">Andata e ritorno</button>
+          <button class="segment" type="button" data-trip="oneway">Solo andata</button>
+        </div>
+
+        <div class="route-grid">
+          <div class="location-field">
+            <label for="origin">Da</label>
+            <div class="input-wrap"><input id="origin" autocomplete="off" placeholder="Bologna, Milano…" /><button class="clear" data-clear="origin" type="button" aria-label="Cancella">×</button></div>
+            <div id="originSuggestions" class="suggestions hidden" role="listbox"></div>
+          </div>
+          <button id="swap" class="swap" type="button" aria-label="Inverti rotta">⇅</button>
+          <div class="location-field">
+            <label for="destination">A</label>
+            <div class="input-wrap"><input id="destination" autocomplete="off" placeholder="Città, aeroporto, Paese, Ovunque…" /><button class="clear" data-clear="destination" type="button" aria-label="Cancella">×</button></div>
+            <div id="destinationSuggestions" class="suggestions hidden" role="listbox"></div>
+          </div>
+        </div>
+
+        <div class="field-label">Quando</div>
+        <div class="chips" role="group" aria-label="Modalità date">
+          <button class="chip active" type="button" data-mode="precise">Date precise</button>
+          <button class="chip" type="button" data-mode="cheapest">Periodo più economico</button>
+          <button class="chip" type="button" data-mode="weekend">Weekend</button>
+        </div>
+
+        <div id="precisePanel" class="mode-panel">
+          <div class="two-col">
+            <label class="control"><span>Andata</span><input id="departureDate" type="date" /></label>
+            <label class="control return-control"><span>Ritorno</span><input id="returnDate" type="date" /></label>
+          </div>
+        </div>
+
+        <div id="cheapestPanel" class="mode-panel hidden">
+          <div class="two-col">
+            <label class="control"><span>Notti</span><select id="nights"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>7</option><option>10</option><option>14</option></select></label>
+            <label class="control"><span>Cerca entro</span><select id="horizon"><option value="3">3 mesi</option><option value="6" selected>6 mesi</option><option value="12">1 anno</option></select></label>
+          </div>
+          <p class="helper">Quando collegheremo una sorgente reale, Fly2 controllerà piccoli gruppi di date alla volta.</p>
+        </div>
+
+        <div id="weekendPanel" class="mode-panel hidden">
+          <div class="two-col">
+            <label class="control"><span>Partenza</span><select id="weekendOut"><option>Venerdì</option><option>Sabato</option></select></label>
+            <label class="control"><span>Dopo le</span><input id="weekendOutTime" type="time" value="20:00" /></label>
+            <label class="control return-control"><span>Ritorno</span><select id="weekendBack"><option>Domenica</option><option>Lunedì</option></select></label>
+            <label class="control return-control"><span>Verso le</span><input id="weekendBackTime" type="time" value="20:00" /></label>
+          </div>
+        </div>
+
+        <div class="quick-grid">
+          <button id="passengerButton" class="summary-button" type="button"><span>👤</span><strong id="passengerSummary">1 adulto</strong><span>⌄</span></button>
+          <label class="select-button"><span>↗</span><select id="stops"><option value="0">Solo diretti</option><option value="1" selected>Massimo 1 scalo</option><option value="2">Massimo 2 scali</option></select></label>
+        </div>
+
+        <button id="advancedToggle" class="advanced-toggle" type="button" aria-expanded="false">Filtri avanzati <span>＋</span></button>
+        <div id="advancedPanel" class="advanced hidden">
+          <div class="two-col">
+            <label class="control"><span>Scalo massimo</span><select id="layover"><option value="8">8 ore</option><option value="24" selected>24 ore</option><option value="none">Nessun limite</option></select></label>
+            <label class="control"><span>Ordina per</span><select id="sort"><option>Predefinito</option><option>Prezzo</option><option>Durata</option><option>Numero di scali</option><option>Numero di notti</option></select></label>
+          </div>
+          <label class="control"><span>Compagnie</span><input id="airlines" placeholder="Es. Ryanair, Vueling" /></label>
+          <label class="control"><span>Evita scali in</span><input id="avoidCountries" placeholder="Es. Regno Unito" /></label>
+        </div>
+
+        <div class="status"><span class="status-dot"></span><span>Versione gratuita GitHub: interfaccia pronta, sorgente voli live ancora da collegare.</span></div>
+        <button id="searchButton" class="primary" type="button">Cerca voli <span>→</span></button>
+      </section>
+
+      <section id="resultSection" class="results hidden" aria-live="polite">
+        <p class="eyebrow">La tua ricerca</p>
+        <h2 id="resultTitle">Ricerca pronta</h2>
+        <div id="resultContent"></div>
+      </section>
+    </main>
+
+    <footer>© 2026 Fly2 · Tutti i diritti riservati.</footer>
+  </div>
+
+  <div id="sheetBackdrop" class="backdrop hidden"></div>
+  <section id="passengerSheet" class="sheet hidden" aria-label="Passeggeri">
+    <div class="handle"></div>
+    <div class="sheet-head"><div><p class="eyebrow">Passeggeri</p><h2>Chi viaggia?</h2></div><button id="closePassengers" class="icon-button" type="button">×</button></div>
+    <div id="passengerRows"></div>
+    <button id="passengerDone" class="primary" type="button">Fatto</button>
+  </section>
+
+  <div id="helpModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="sheet-head"><div><p class="eyebrow">Informazioni</p><h2>Come funziona Fly2</h2></div><button data-close-modal class="icon-button" type="button">×</button></div>
+      <p>Questa versione gira interamente nel browser ed è pensata per GitHub Pages. Non usa servizi a pagamento, non richiede carte e non inventa prezzi.</p>
+      <p>Il prossimo passo sarà collegare una sorgente gratuita compatibile per i dati reali dei voli, mantenendo separato il codice dell'interfaccia.</p>
+    </div>
+  </div>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
