@@ -26,6 +26,16 @@
     var cheapestPanel = document.getElementById('cheapestPanel');
     var weekendPanel = document.getElementById('weekendPanel');
 
+    var nativeDateIds = [
+      'flexOutExact', 'flexOutBase', 'flexOutFrom', 'flexOutTo',
+      'flexInExact', 'flexInBase', 'flexInFrom', 'flexInTo'
+    ];
+
+    nativeDateIds.forEach(function (id) {
+      var input = document.getElementById(id);
+      if (input) input.value = '';
+    });
+
     var backdrop = document.createElement('div');
     backdrop.className = 'fly2-native-sheet-backdrop';
     document.body.appendChild(backdrop);
@@ -72,7 +82,11 @@
       activeSheet = sheets[key].root;
       document.body.classList.add('fly2-native-sheet-open');
       backdrop.style.pointerEvents = 'auto';
-      requestAnimationFrame(function () { activeSheet.classList.add('is-open'); });
+      requestAnimationFrame(function () {
+        activeSheet.classList.add('is-open');
+        var content = activeSheet.querySelector('.fly2-native-sheet-content');
+        if (content) content.scrollTop = 0;
+      });
     }
 
     function closeSheet() {
@@ -204,7 +218,7 @@
     searchButton.insertAdjacentElement('afterend', advancedOpen);
 
     function formatShort(value) {
-      if (!value) return 'Da scegliere';
+      if (!value) return '';
       var date = new Date(value + 'T12:00:00');
       if (!Number.isFinite(date.getTime())) return value;
       try {
@@ -240,8 +254,13 @@
       var from = document.getElementById(prefix + 'From');
       var to = document.getElementById(prefix + 'To');
       if (kind === 'exact') return formatShort((exact && exact.value) || '');
-      if (kind === 'plusminus') return formatShort((base && base.value) || '') + ' ±' + ((days && days.value) || '0') + 'g';
-      return formatShort((from && from.value) || '') + '–' + formatShort((to && to.value) || '');
+      if (kind === 'plusminus') {
+        var baseText = formatShort((base && base.value) || '');
+        return baseText ? baseText + ' ±' + ((days && days.value) || '0') + 'g' : '';
+      }
+      var fromText = formatShort((from && from.value) || '');
+      var toText = formatShort((to && to.value) || '');
+      return fromText && toText ? fromText + '–' + toText : '';
     }
 
     function dateSummaryText() {
@@ -259,8 +278,11 @@
         return back ? out.slice(0, 3) + ' → ' + back.slice(0, 3) : out;
       }
       var outbound = legText('out');
+      if (!outbound) return 'Scegli date';
       if (activeTrip() === 'oneway') return outbound;
-      return outbound + ' · ' + legText('in');
+      var inbound = legText('in');
+      if (!inbound) return 'Scegli date';
+      return outbound + ' · ' + inbound;
     }
 
     function stopSummaryText() {
@@ -282,6 +304,96 @@
       stopList.querySelectorAll('.fly2-stop-choice').forEach(function (button) {
         button.classList.toggle('is-selected', button.dataset.value === selected);
       });
+    }
+
+    function showNativeDatePicker(input) {
+      if (!input || input.disabled) return;
+      try {
+        input.focus({ preventScroll: true });
+      } catch (error) {
+        try { input.focus(); } catch (ignored) {}
+      }
+      try {
+        if (typeof input.showPicker === 'function') input.showPicker();
+      } catch (ignored) {}
+    }
+
+    nativeDateIds.forEach(function (id) {
+      var input = document.getElementById(id);
+      if (!input) return;
+      input.removeAttribute('readonly');
+      input.setAttribute('inputmode', 'none');
+      input.addEventListener('click', function () { showNativeDatePicker(input); });
+      var control = input.closest('.control');
+      if (control) {
+        control.addEventListener('click', function (event) {
+          if (event.target === input || event.target.closest('select')) return;
+          event.preventDefault();
+          showNativeDatePicker(input);
+        });
+      }
+    });
+
+    var suggestionPairs = [
+      { input: document.getElementById('origin'), box: document.getElementById('originSuggestions') },
+      { input: document.getElementById('destination'), box: document.getElementById('destinationSuggestions') }
+    ];
+    var activeSuggestionPair = null;
+
+    function visibleViewport() {
+      var vv = window.visualViewport;
+      if (vv) return { top: vv.offsetTop || 0, bottom: (vv.offsetTop || 0) + vv.height };
+      return { top: 0, bottom: window.innerHeight };
+    }
+
+    function positionSuggestion(pair) {
+      if (!pair || !pair.input || !pair.box || pair.box.classList.contains('hidden')) return;
+      var wrap = pair.input.closest('.input-wrap') || pair.input;
+      var rect = wrap.getBoundingClientRect();
+      var viewport = visibleViewport();
+      var gap = 6;
+      var below = viewport.bottom - rect.bottom - gap - 8;
+      var above = rect.top - viewport.top - gap - 8;
+      var useBelow = below >= 132 || below >= above;
+      var maxHeight = Math.max(96, Math.min(270, useBelow ? below : above));
+      var top = useBelow ? rect.bottom + gap : rect.top - gap - maxHeight;
+      top = Math.max(viewport.top + 8, top);
+      pair.box.classList.add('fly2-native-suggestions-floating');
+      pair.box.style.left = Math.max(10, rect.left) + 'px';
+      pair.box.style.width = Math.max(220, rect.width) + 'px';
+      pair.box.style.top = top + 'px';
+      pair.box.style.maxHeight = maxHeight + 'px';
+      activeSuggestionPair = pair;
+    }
+
+    function scheduleSuggestion(pair) {
+      window.setTimeout(function () { positionSuggestion(pair); }, 0);
+      window.setTimeout(function () { positionSuggestion(pair); }, 90);
+    }
+
+    suggestionPairs.forEach(function (pair) {
+      if (!pair.input || !pair.box) return;
+      pair.input.addEventListener('focus', function () { scheduleSuggestion(pair); }, true);
+      pair.input.addEventListener('input', function () { scheduleSuggestion(pair); }, true);
+      pair.box.addEventListener('click', function () {
+        window.setTimeout(function () {
+          pair.box.classList.remove('fly2-native-suggestions-floating');
+          pair.box.removeAttribute('style');
+          if (activeSuggestionPair === pair) activeSuggestionPair = null;
+        }, 80);
+      }, true);
+      new MutationObserver(function () { scheduleSuggestion(pair); })
+        .observe(pair.box, { attributes: true, attributeFilter: ['class'] });
+    });
+
+    function repositionSuggestions() {
+      if (activeSuggestionPair) positionSuggestion(activeSuggestionPair);
+    }
+    window.addEventListener('resize', repositionSuggestions, { passive: true });
+    window.addEventListener('scroll', repositionSuggestions, { passive: true, capture: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', repositionSuggestions, { passive: true });
+      window.visualViewport.addEventListener('scroll', repositionSuggestions, { passive: true });
     }
 
     document.addEventListener('input', function (event) {

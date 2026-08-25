@@ -4,12 +4,12 @@ html.fly2-native-app body{padding:0 0 10px!important;overscroll-behavior-y:none}
 html.fly2-native-app .topbar,html.fly2-native-app .site-footer,html.fly2-native-app .hero{display:none!important}
 html.fly2-native-app .app-shell{max-width:none!important;margin:0!important;padding:0!important}
 html.fly2-native-app main{padding:0!important;margin:0!important}
-html.fly2-native-app .search-card{margin:0!important;padding:12px!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:var(--fly2-native-bg)!important}
+html.fly2-native-app .search-card{margin:0!important;padding:12px!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:var(--fly2-native-bg)!important;overflow:visible!important}
 html.fly2-native-app .trip-segmented{margin:0 0 10px!important;padding:4px!important;min-height:46px!important;border-radius:16px!important;background:#e9ece7!important;box-shadow:inset 0 0 0 1px rgba(13,102,95,.07)!important}
 html.fly2-native-app .trip-segmented .segment{min-height:38px!important;padding:7px 10px!important;border-radius:12px!important;font-size:13px!important;font-weight:850!important;color:#41534f!important}
 html.fly2-native-app .trip-segmented .segment.active{background:linear-gradient(135deg,#0b5f58,#0d766d)!important;color:#fff!important;box-shadow:0 5px 14px rgba(13,102,95,.2)!important}
-html.fly2-native-app .route-grid{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;position:relative!important;margin:0 0 10px!important}
-html.fly2-native-app .route-grid>.location-field{min-width:0!important;margin:0!important;padding:0!important}
+html.fly2-native-app .route-grid{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;position:relative!important;margin:0 0 10px!important;overflow:visible!important}
+html.fly2-native-app .route-grid>.location-field{min-width:0!important;margin:0!important;padding:0!important;overflow:visible!important}
 html.fly2-native-app .route-grid .label-row{min-height:18px!important;margin:0 4px 3px!important;align-items:center!important}
 html.fly2-native-app .route-grid .label-row label{font-size:10.5px!important;letter-spacing:.02em!important;font-weight:900!important;color:#52645f!important}
 html.fly2-native-app .route-grid .anywhere-check{font-size:10px!important;gap:5px!important}
@@ -18,8 +18,10 @@ html.fly2-native-app .route-grid .input-wrap{min-height:58px!important;height:58
 html.fly2-native-app .route-grid .input-wrap input{height:100%!important;padding:0 44px 0 16px!important;font-size:16px!important;font-weight:800!important;color:#1e302d!important;text-overflow:ellipsis!important}
 html.fly2-native-app .route-grid .input-wrap input::placeholder{font-size:14px!important;font-weight:700!important;color:#87918f!important}
 html.fly2-native-app .route-grid .clear{right:10px!important;width:32px!important;height:32px!important;font-size:20px!important}
-html.fly2-native-app .route-grid .swap{position:absolute!important;z-index:6!important;right:18px!important;top:50%!important;transform:translateY(-50%)!important;width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;border-radius:50%!important;background:#fff!important;border:1px solid rgba(13,102,95,.16)!important;box-shadow:0 5px 15px rgba(18,61,56,.13)!important;color:var(--fly2-native-green)!important;font-size:17px!important}
-html.fly2-native-app .suggestions{border-radius:16px!important;box-shadow:0 14px 30px rgba(18,61,56,.14)!important}
+html.fly2-native-app .route-grid .swap{position:absolute!important;z-index:12!important;left:50%!important;right:auto!important;top:50%!important;transform:translate(-50%,-50%)!important;width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;border-radius:50%!important;background:#fff!important;border:1px solid rgba(13,102,95,.18)!important;box-shadow:0 7px 18px rgba(18,61,56,.15)!important;color:var(--fly2-native-green)!important;font-size:17px!important}
+html.fly2-native-app .suggestions{border-radius:16px!important;box-shadow:0 14px 30px rgba(18,61,56,.18)!important}
+html.fly2-native-app .suggestions.fly2-native-suggestions-floating{position:fixed!important;right:auto!important;bottom:auto!important;z-index:2147482500!important;overflow:auto!important;-webkit-overflow-scrolling:touch!important;background:#fff!important;border:1px solid rgba(13,102,95,.12)!important;padding:4px!important}
+html.fly2-native-app .suggestions.fly2-native-suggestions-floating .suggestion{min-height:54px!important;padding:10px 11px!important}
 html.fly2-native-app .fly2-native-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:0 0 10px}
 html.fly2-native-app .fly2-native-summary-card{appearance:none;border:1px solid rgba(19,61,56,.11);background:#fff;border-radius:16px;min-height:72px;padding:8px 8px 7px;display:grid;grid-template-rows:auto 1fr;gap:4px;text-align:left;box-shadow:0 5px 16px rgba(26,52,48,.05);color:#18332f;min-width:0}
 html.fly2-native-app .fly2-native-summary-top{display:flex;align-items:center;gap:5px;color:#52645f;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.025em;white-space:nowrap;overflow:hidden}
@@ -31,7 +33,7 @@ html.fly2-native-app .fly2-native-advanced-button span:first-child{font-size:14p
 html.fly2-native-app .field-label,html.fly2-native-app .date-mode-chips,html.fly2-native-app #flexiblePanel,html.fly2-native-app #cheapestPanel,html.fly2-native-app #weekendPanel,html.fly2-native-app .quick-grid,html.fly2-native-app #advancedToggle,html.fly2-native-app #advancedPanel,html.fly2-native-app .trust-note{display:none!important}
 html.fly2-native-app .fly2-native-sheet .field-label,html.fly2-native-app .fly2-native-sheet .date-mode-chips,html.fly2-native-app .fly2-native-sheet #flexiblePanel:not(.hidden),html.fly2-native-app .fly2-native-sheet #cheapestPanel:not(.hidden),html.fly2-native-app .fly2-native-sheet #weekendPanel:not(.hidden),html.fly2-native-app .fly2-native-sheet #advancedPanel{display:block!important}
 html.fly2-native-app .fly2-native-sheet-backdrop{position:fixed;inset:0;background:rgba(9,31,28,.34);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .22s ease;z-index:2147483000}
-html.fly2-native-app .fly2-native-sheet{position:fixed;left:0;right:0;bottom:0;max-height:min(82vh,720px);background:#fbfbf8;border-radius:24px 24px 0 0;box-shadow:0 -18px 44px rgba(8,40,36,.24);transform:translateY(105%);transition:transform .28s cubic-bezier(.22,.78,.22,1);z-index:2147483001;display:flex;flex-direction:column;overflow:hidden}
+html.fly2-native-app .fly2-native-sheet{position:fixed;left:0;right:0;bottom:0;max-height:min(86vh,760px);background:#fbfbf8;border-radius:24px 24px 0 0;box-shadow:0 -18px 44px rgba(8,40,36,.24);transform:translateY(105%);transition:transform .28s cubic-bezier(.22,.78,.22,1);z-index:2147483001;display:flex;flex-direction:column;overflow:hidden}
 html.fly2-native-app .fly2-native-sheet.is-open{transform:translateY(0)}
 html.fly2-native-app body.fly2-native-sheet-open{overflow:hidden!important}
 html.fly2-native-app body.fly2-native-sheet-open .fly2-native-sheet-backdrop{opacity:1;pointer-events:auto}
@@ -39,7 +41,7 @@ html.fly2-native-app .fly2-native-sheet-grabber{width:42px;height:5px;border-rad
 html.fly2-native-app .fly2-native-sheet-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px 11px;border-bottom:1px solid rgba(19,61,56,.08);flex:0 0 auto}
 html.fly2-native-app .fly2-native-sheet-header strong{font-size:17px;color:#173a35;letter-spacing:-.01em}
 html.fly2-native-app .fly2-native-sheet-close{width:36px;height:36px;border:0;border-radius:50%;background:#eef2ee;color:#385a55;font-size:21px;display:grid;place-items:center}
-html.fly2-native-app .fly2-native-sheet-content{overflow:auto;-webkit-overflow-scrolling:touch;padding:14px 14px calc(18px + env(safe-area-inset-bottom));flex:1 1 auto}
+html.fly2-native-app .fly2-native-sheet-content{overflow:auto;-webkit-overflow-scrolling:touch;padding:14px 14px calc(24px + env(safe-area-inset-bottom));flex:1 1 auto;scroll-padding-bottom:18px}
 html.fly2-native-app .fly2-native-sheet .date-mode-chips{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:6px!important;margin:0 0 12px!important}
 html.fly2-native-app .fly2-native-sheet .date-mode-chips .chip{min-height:41px!important;padding:7px!important;font-size:11px!important;border-radius:12px!important}
 html.fly2-native-app .fly2-native-sheet .mode-panel{margin:0!important}
@@ -51,6 +53,7 @@ html.fly2-native-app .fly2-native-sheet .mini-segmented{margin:8px 0!important;p
 html.fly2-native-app .fly2-native-sheet .mini-segmented button{min-height:36px!important;font-size:10.5px!important;border-radius:9px!important;padding:6px!important}
 html.fly2-native-app .fly2-native-sheet .control>span{font-size:10px!important}
 html.fly2-native-app .fly2-native-sheet .control input,html.fly2-native-app .fly2-native-sheet .control select{min-height:46px!important;height:46px!important;font-size:12px!important;border-radius:13px!important}
+html.fly2-native-app .fly2-native-sheet input[type=date]{pointer-events:auto!important;touch-action:manipulation!important;cursor:pointer!important;position:relative!important;z-index:2!important;-webkit-appearance:auto!important;appearance:auto!important}
 html.fly2-native-app .fly2-native-sheet #advancedPanel{padding:0!important;background:transparent!important}
 html.fly2-native-app .fly2-native-sheet .filter-group{padding:13px!important;border-radius:16px!important;margin:0 0 10px!important}
 html.fly2-native-app .fly2-native-sheet .filter-title strong{font-size:13px!important}
@@ -59,7 +62,7 @@ html.fly2-native-app .fly2-native-sheet .segment-policy-card{padding:11px!import
 html.fly2-native-app .fly2-native-sheet .choice-grid label{padding:9px!important;border-radius:12px!important}
 html.fly2-native-app .fly2-native-sheet .choice-grid label strong{font-size:11px!important}
 html.fly2-native-app .fly2-native-sheet .choice-grid label small{font-size:9px!important}
-html.fly2-native-app .fly2-native-sheet-action{position:sticky;bottom:0;width:100%;min-height:50px;border:0;border-radius:15px;background:linear-gradient(135deg,#0b5c56,#08776d);color:#fff;font-size:14px;font-weight:900;margin-top:10px;box-shadow:0 8px 18px rgba(13,102,95,.18)}
+html.fly2-native-app .fly2-native-sheet-action{position:static!important;display:block;width:100%;min-height:50px;border:0;border-radius:15px;background:linear-gradient(135deg,#0b5c56,#08776d);color:#fff;font-size:14px;font-weight:900;margin:16px 0 4px!important;box-shadow:0 8px 18px rgba(13,102,95,.18)}
 html.fly2-native-app .fly2-stop-choice-list{display:grid;gap:8px}
 html.fly2-native-app .fly2-stop-choice{appearance:none;width:100%;border:1px solid rgba(19,61,56,.12);background:#fff;border-radius:16px;padding:14px 14px;display:flex;align-items:center;justify-content:space-between;text-align:left;color:#1b3632}
 html.fly2-native-app .fly2-stop-choice strong{font-size:13px}
