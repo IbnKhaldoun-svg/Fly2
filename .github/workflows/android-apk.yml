@@ -41,11 +41,11 @@ jobs:
         run: gradle -p android assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk Fly2-S25-debug.apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk Fly2-S25-v2-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Fly2-S25-APK
-          path: Fly2-S25-debug.apk
+          name: Fly2-S25-v2-APK
+          path: Fly2-S25-v2-debug.apk
           if-no-files-found: error
