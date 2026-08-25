@@ -100,6 +100,16 @@
         const polish = document.createElement('script');
         polish.src = './app-polish.js';
         polish.onload = () => {
+          const calendarFix = document.createElement('script');
+          calendarFix.src = './app-calendar-stable-fix.js';
+          calendarFix.onerror = () => console.error('Impossibile caricare la correzione stabile del calendario di Fly2.');
+          document.head.appendChild(calendarFix);
+
+          const stopoverSummary = document.createElement('script');
+          stopoverSummary.src = './app-stopover-summary.js';
+          stopoverSummary.onerror = () => console.error('Impossibile caricare il riepilogo stabile degli scali di Fly2.');
+          document.head.appendChild(stopoverSummary);
+
           const summaryDetails = document.createElement('script');
           summaryDetails.src = './app-summary-details-v2.js';
           summaryDetails.onerror = () => console.error('Impossibile caricare il riepilogo avanzato di Fly2.');
