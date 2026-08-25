@@ -1,0 +1,81 @@
+name: Update global airport dataset
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/update-global-airports.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download OurAirports data
+        run: |
+          curl -fsSL --retry 3 https://davidmegginson.github.io/ourairports-data/airports.csv -o /tmp/airports.csv
+          curl -fsSL --retry 3 https://davidmegginson.github.io/ourairports-data/countries.csv -o /tmp/countries.csv
+
+      - name: Build compact scheduled-service airport index
+        run: |
+          python - <<'PY'
+          import csv, json, os, re
+
+          with open('/tmp/countries.csv', encoding='utf-8-sig', newline='') as f:
+              countries = {row.get('code','').strip().upper(): row.get('name','').strip() for row in csv.DictReader(f)}
+
+          airports = []
+          seen = set()
+          with open('/tmp/airports.csv', encoding='utf-8-sig', newline='') as f:
+              for row in csv.DictReader(f):
+                  iata = (row.get('iata_code') or '').strip().upper()
+                  scheduled = (row.get('scheduled_service') or '').strip().lower()
+                  kind = (row.get('type') or '').strip().lower()
+                  if not re.fullmatch(r'[A-Z]{3}', iata):
+                      continue
+                  if scheduled not in {'yes','1','true','y'}:
+                      continue
+                  if kind in {'closed','heliport','seaplane_base','balloonport'}:
+                      continue
+                  if iata in seen:
+                      continue
+                  seen.add(iata)
+                  cc = (row.get('iso_country') or '').strip().upper()
+                  city = (row.get('municipality') or '').strip()
+                  name = (row.get('name') or '').strip()
+                  keywords = (row.get('keywords') or '').strip()
+                  airports.append({
+                      'i': iata,
+                      'c': city or name or iata,
+                      'n': name or city or iata,
+                      'cc': cc,
+                      'co': countries.get(cc, cc),
+                      'k': keywords
+                  })
+
+          airports.sort(key=lambda a: (a['co'].casefold(), a['c'].casefold(), a['i']))
+          os.makedirs('data', exist_ok=True)
+          with open('data/airports-global.json', 'w', encoding='utf-8') as f:
+              json.dump({'source':'OurAirports','airports':airports}, f, ensure_ascii=False, separators=(',',':'))
+          print(f'Generated {len(airports)} scheduled-service IATA airports')
+          PY
+
+      - name: Commit dataset if changed
+        run: |
+          if git diff --quiet -- data/airports-global.json && git ls-files --error-unmatch data/airports-global.json >/dev/null 2>&1; then
+            echo 'Airport dataset already current.'
+            exit 0
+          fi
+          git config user.name 'Fly2 airport updater'
+          git config user.email 'actions@users.noreply.github.com'
+          git add data/airports-global.json
+          git commit -m 'Update global airport autocomplete data'
+          git push
