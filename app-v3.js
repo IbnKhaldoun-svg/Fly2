@@ -99,7 +99,7 @@
       live.onload = () => {
         if (/Fly2Android\//i.test(navigator.userAgent)) {
           const multiAirport = document.createElement('script');
-          multiAirport.src = './app-android-multi-airport.js?v=20260825-1';
+          multiAirport.src = './app-android-multi-airport.js?v=20260825-2';
           multiAirport.onerror = () => console.error('Impossibile caricare la ricerca multi-aeroporto Android.');
           document.head.appendChild(multiAirport);
         }
