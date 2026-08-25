@@ -115,6 +115,11 @@
       const live = document.createElement('script');
       live.src = './app-live.js';
       live.onload = () => {
+        const ryanairAnywhere = document.createElement('script');
+        ryanairAnywhere.src = './app-ryanair-anywhere.js?v=20260825-1';
+        ryanairAnywhere.onerror = () => console.error('Impossibile caricare il supporto Ryanair Ovunque.');
+        document.head.appendChild(ryanairAnywhere);
+
         if (/Fly2Android\//i.test(navigator.userAgent)) {
           const multiAirport = document.createElement('script');
           multiAirport.src = './app-android-multi-airport.js?v=20260825-2';
