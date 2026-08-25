@@ -7,6 +7,12 @@
     globalAirports.onerror = () => console.error('Impossibile caricare l’indice aeroporti globale di Fly2.');
     document.head.appendChild(globalAirports);
 
+    const iataSearchFix = document.createElement('script');
+    iataSearchFix.src = './app-airport-iata-search-fix.js?v=20260825-1';
+    iataSearchFix.async = false;
+    iataSearchFix.onerror = () => console.error('Impossibile caricare la correzione IATA delle ricerche aeroporto.');
+    document.head.appendChild(iataSearchFix);
+
     if (/Fly2Android\//i.test(navigator.userAgent)) {
       const androidAirportSearch = document.createElement('script');
       androidAirportSearch.src = './app-android-airport-search.js?v=20260825-1';
