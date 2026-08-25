@@ -61,11 +61,7 @@
     function airportFromInput(input) {
       const iata = String(input.dataset.locationIata || '').trim().toUpperCase();
       if (!/^[A-Z]{3}$/.test(iata)) return null;
-      return {
-        iata,
-        label: input.value.trim() || iata,
-        dataset: datasetCopy(input)
-      };
+      return { iata, label: input.value.trim() || iata, dataset: datasetCopy(input) };
     }
 
     function shortName(item) {
@@ -182,28 +178,41 @@
           state.items = [selected];
           renderState(state);
         }
-      }, 20);
+      }, 30);
     }
 
     makeRow('origin');
     makeRow('destination');
     $('.route-grid')?.classList.add('fly2-has-multi-airports');
 
-    originBox.addEventListener('click', () => captureSuggestion('origin'));
-    destinationBox.addEventListener('click', () => captureSuggestion('destination'));
-
     document.addEventListener('click', event => {
+      if (event.target.closest?.('#originSuggestions')) captureSuggestion('origin');
+      if (event.target.closest?.('#destinationSuggestions')) captureSuggestion('destination');
+
       const clear = event.target.closest?.('[data-clear="origin"],[data-clear="destination"]');
-      if (!clear) return;
-      const which = clear.dataset.clear;
-      const state = states[which];
-      if (!state) return;
-      window.setTimeout(() => {
-        state.items = [];
-        state.adding = false;
-        state.snapshot = null;
-        renderState(state);
-      }, 0);
+      if (clear) {
+        const which = clear.dataset.clear;
+        const state = states[which];
+        if (state) {
+          window.setTimeout(() => {
+            state.items = [];
+            state.adding = false;
+            state.snapshot = null;
+            renderState(state);
+          }, 0);
+        }
+      }
+
+      if (event.target.closest?.('#searchButton')) {
+        [states.origin, states.destination].forEach(state => {
+          if (state.adding) restorePrimary(state);
+          ensurePrimary(state);
+        });
+        if (states.origin.items[0]) setInputFromItem(states.origin, states.origin.items[0]);
+        if (states.destination.items[0]) setInputFromItem(states.destination, states.destination.items[0]);
+        searchArmed = combinationCount() > 1;
+        runSerial += 1;
+      }
     }, true);
 
     anywhere?.addEventListener('change', () => {
@@ -228,18 +237,6 @@
         renderState(states.destination);
       }, 0);
     });
-
-    searchButton.addEventListener('click', () => {
-      [states.origin, states.destination].forEach(state => {
-        if (state.adding) restorePrimary(state);
-        ensurePrimary(state);
-      });
-      if (states.origin.items[0]) setInputFromItem(states.origin, states.origin.items[0]);
-      if (states.destination.items[0]) setInputFromItem(states.destination, states.destination.items[0]);
-      const combos = combinationCount();
-      searchArmed = combos > 1;
-      runSerial += 1;
-    }, true);
 
     function combinationCount() {
       if (anywhere?.checked) return 1;
@@ -272,11 +269,8 @@
       try { basePayload = JSON.parse(init?.body || '{}'); } catch (_) {}
       const primaryPromise = networkFetch(resource, init);
       if (basePayload) {
-        primaryPromise.then(() => {
-          window.setTimeout(() => runSupplementalPairs(basePayload, serial), 300);
-        }).catch(() => {
-          window.setTimeout(() => runSupplementalPairs(basePayload, serial), 150);
-        });
+        primaryPromise.then(() => window.setTimeout(() => runSupplementalPairs(basePayload, serial), 350))
+          .catch(() => window.setTimeout(() => runSupplementalPairs(basePayload, serial), 180));
       }
       return primaryPromise;
     };
@@ -332,7 +326,6 @@
               updateTitle();
             }
           } catch (_) {
-            // Una coppia può fallire senza bloccare le altre combinazioni.
           } finally {
             completed += 1;
             showProgress(completed, total);
