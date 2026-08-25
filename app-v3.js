@@ -115,6 +115,11 @@
       const live = document.createElement('script');
       live.src = './app-live.js';
       live.onload = () => {
+        const ryanairWeekend = document.createElement('script');
+        ryanairWeekend.src = './app-ryanair-weekend.js?v=20260825-1';
+        ryanairWeekend.onerror = () => console.error('Impossibile caricare il supporto Ryanair Weekend.');
+        document.head.appendChild(ryanairWeekend);
+
         const ryanairAnywhere = document.createElement('script');
         ryanairAnywhere.src = './app-ryanair-anywhere.js?v=20260825-1';
         ryanairAnywhere.onerror = () => console.error('Impossibile caricare il supporto Ryanair Ovunque.');
