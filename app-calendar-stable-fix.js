@@ -85,6 +85,11 @@
 
     const root = document.querySelector('.fly2-calendar:not(.hidden)');
     root?.classList.add('hidden');
+
+    // Aggiorna anche i vincoli del ritorno. La gestione capture qui sotto
+    // converte per un istante ± giorni in un range futuro, senza spostare la
+    // data centrale scelta dall'utente.
+    document.getElementById('flexOutDays')?.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   }
 
@@ -137,8 +142,8 @@
     }
   }
 
-  function prepareNearTodayFlexibleSearch() {
-    displaySummaryOverride = '';
+  function prepareNearTodayFlexibleSearch(setSummary = true) {
+    if (setSummary) displaySummaryOverride = '';
     if (!isOutboundPlusMinus()) return null;
 
     const baseInput = document.getElementById('flexOutBase');
@@ -152,7 +157,7 @@
     if (lower >= today) return null;
 
     const upper = addDays(base, days);
-    displaySummaryOverride = currentDisplaySummary();
+    if (setSummary) displaySummaryOverride = currentDisplaySummary();
 
     const plusButton = document.querySelector('[data-flex-leg="out"][data-flex-kind="plusminus"]');
     const rangeButton = document.querySelector('[data-flex-leg="out"][data-flex-kind="range"]');
@@ -162,6 +167,7 @@
     const to = document.getElementById('flexOutTo');
 
     const saved = {
+      base,
       from: from?.value || '',
       to: to?.value || '',
       plusActive: plusButton?.classList.contains('active') || false,
@@ -178,13 +184,17 @@
     rangePanel?.classList.remove('hidden');
 
     return () => {
+      if (baseInput) {
+        baseInput.value = saved.base;
+        updateDateButton(baseInput);
+      }
       if (from) from.value = saved.from;
       if (to) to.value = saved.to;
       plusButton?.classList.toggle('active', saved.plusActive);
       rangeButton?.classList.toggle('active', saved.rangeActive);
       plusPanel?.classList.toggle('hidden', saved.plusHidden);
       rangePanel?.classList.toggle('hidden', saved.rangeHidden);
-      restoreSearchSummary();
+      if (setSummary) restoreSearchSummary();
     };
   }
 
@@ -199,7 +209,16 @@
   // riceve quindi oggi→data+N, ma l'interfaccia resta visualmente in modalità ±.
   window.addEventListener('click', event => {
     if (!event.target.closest?.('#searchButton')) return;
-    const restore = prepareNearTodayFlexibleSearch();
+    const restore = prepareNearTodayFlexibleSearch(true);
+    if (restore) window.setTimeout(restore, 0);
+  }, true);
+
+  // Anche il cambio della tolleranza non deve spostare la data centrale da
+  // oggi a oggi+N. Usiamo lo stesso range temporaneo per lasciare che il codice
+  // #102 aggiorni correttamente i vincoli del ritorno.
+  window.addEventListener('change', event => {
+    if (event.target?.id !== 'flexOutDays') return;
+    const restore = prepareNearTodayFlexibleSearch(false);
     if (restore) window.setTimeout(restore, 0);
   }, true);
 
