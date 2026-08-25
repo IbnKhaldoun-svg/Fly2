@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fly2_bg">#F7F6F1</color>
+    <color name="fly2_ink">#173630</color>
+    <color name="fly2_green">#0D665F</color>
+    <color name="fly2_green_dark">#084D48</color>
+    <color name="fly2_muted">#6B7D78</color>
+</resources>
