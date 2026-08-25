@@ -7,6 +7,13 @@
     globalAirports.onerror = () => console.error('Impossibile caricare l’indice aeroporti globale di Fly2.');
     document.head.appendChild(globalAirports);
 
+    if (/Fly2Android\//i.test(navigator.userAgent)) {
+      const androidAirportSearch = document.createElement('script');
+      androidAirportSearch.src = './app-android-airport-search.js?v=20260825-1';
+      androidAirportSearch.onerror = () => console.error('Impossibile caricare la ricerca aeroporti Android.');
+      document.head.appendChild(androidAirportSearch);
+    }
+
     const liveStyle = document.createElement('link');
     liveStyle.rel = 'stylesheet';
     liveStyle.href = './styles-live.css';
@@ -106,6 +113,12 @@
           const multiAirport = document.createElement('script');
           multiAirport.src = './app-android-multi-airport.js?v=20260825-2';
           multiAirport.onerror = () => console.error('Impossibile caricare la ricerca multi-aeroporto Android.');
+          multiAirport.onload = () => {
+            const routeLayoutFix = document.createElement('script');
+            routeLayoutFix.src = './app-android-layout-fix.js?v=20260825-1';
+            routeLayoutFix.onerror = () => console.error('Impossibile caricare il layout compatto Android.');
+            document.head.appendChild(routeLayoutFix);
+          };
           document.head.appendChild(multiAirport);
         }
 
