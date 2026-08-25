@@ -8,8 +8,10 @@ html.fly2-native-app .search-card{margin:0!important;padding:12px!important;bord
 html.fly2-native-app .trip-segmented{margin:0 0 10px!important;padding:4px!important;min-height:46px!important;border-radius:16px!important;background:#e9ece7!important;box-shadow:inset 0 0 0 1px rgba(13,102,95,.07)!important}
 html.fly2-native-app .trip-segmented .segment{min-height:38px!important;padding:7px 10px!important;border-radius:12px!important;font-size:13px!important;font-weight:850!important;color:#41534f!important}
 html.fly2-native-app .trip-segmented .segment.active{background:linear-gradient(135deg,#0b5f58,#0d766d)!important;color:#fff!important;box-shadow:0 5px 14px rgba(13,102,95,.2)!important}
-html.fly2-native-app .route-grid{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;position:relative!important;margin:0 0 10px!important;overflow:visible!important}
+html.fly2-native-app .route-grid{display:flex!important;flex-direction:column!important;gap:0!important;position:relative!important;margin:0 0 10px!important;overflow:visible!important}
 html.fly2-native-app .route-grid>.location-field{min-width:0!important;margin:0!important;padding:0!important;overflow:visible!important}
+html.fly2-native-app .route-grid>.location-field:first-of-type{order:1!important}
+html.fly2-native-app .route-grid>.location-field:last-of-type{order:3!important}
 html.fly2-native-app .route-grid .label-row{min-height:18px!important;margin:0 4px 3px!important;align-items:center!important}
 html.fly2-native-app .route-grid .label-row label{font-size:10.5px!important;letter-spacing:.02em!important;font-weight:900!important;color:#52645f!important}
 html.fly2-native-app .route-grid .anywhere-check{font-size:10px!important;gap:5px!important}
@@ -18,7 +20,7 @@ html.fly2-native-app .route-grid .input-wrap{min-height:58px!important;height:58
 html.fly2-native-app .route-grid .input-wrap input{height:100%!important;padding:0 44px 0 16px!important;font-size:16px!important;font-weight:800!important;color:#1e302d!important;text-overflow:ellipsis!important}
 html.fly2-native-app .route-grid .input-wrap input::placeholder{font-size:14px!important;font-weight:700!important;color:#87918f!important}
 html.fly2-native-app .route-grid .clear{right:10px!important;width:32px!important;height:32px!important;font-size:20px!important}
-html.fly2-native-app .route-grid .swap{position:absolute!important;z-index:12!important;left:50%!important;right:auto!important;top:50%!important;transform:translate(-50%,-50%)!important;width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;border-radius:50%!important;background:#fff!important;border:1px solid rgba(13,102,95,.18)!important;box-shadow:0 7px 18px rgba(18,61,56,.15)!important;color:var(--fly2-native-green)!important;font-size:17px!important}
+html.fly2-native-app .route-grid .swap{order:2!important;position:relative!important;z-index:12!important;left:auto!important;right:auto!important;top:auto!important;transform:none!important;align-self:center!important;margin:5px auto -10px!important;width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;border-radius:50%!important;background:#fff!important;border:1px solid rgba(13,102,95,.18)!important;box-shadow:0 7px 18px rgba(18,61,56,.15)!important;color:var(--fly2-native-green)!important;font-size:18px!important}
 html.fly2-native-app .suggestions{border-radius:16px!important;box-shadow:0 14px 30px rgba(18,61,56,.18)!important}
 html.fly2-native-app .suggestions.fly2-native-suggestions-floating{position:fixed!important;right:auto!important;bottom:auto!important;z-index:2147482500!important;overflow:auto!important;-webkit-overflow-scrolling:touch!important;background:#fff!important;border:1px solid rgba(13,102,95,.12)!important;padding:4px!important}
 html.fly2-native-app .suggestions.fly2-native-suggestions-floating .suggestion{min-height:54px!important;padding:10px 11px!important}
@@ -72,6 +74,17 @@ html.fly2-native-app .fly2-stop-choice.is-selected{border-color:rgba(13,102,95,.
 html.fly2-native-app .fly2-stop-choice.is-selected .fly2-stop-check{background:var(--fly2-native-green);border-color:var(--fly2-native-green)}
 html.fly2-native-app #passengerSheet{z-index:2147483100!important}
 html.fly2-native-app #sheetBackdrop{z-index:2147483099!important;backdrop-filter:blur(3px)}
+html.fly2-native-app .fly2-calendar:not(.hidden){display:block!important;position:fixed!important;z-index:2147483600!important;left:14px!important;right:14px!important;top:auto!important;bottom:16px!important;width:auto!important;max-width:520px!important;margin:0 auto!important;border-radius:22px!important;background:#fff!important;box-shadow:0 24px 60px rgba(7,36,33,.34)!important;border:1px solid rgba(13,102,95,.15)!important;padding:14px!important}
+html.fly2-native-app .fly2-calendar.hidden{display:none!important}
+html.fly2-native-app .fly2-calendar-head{padding:0 0 10px!important}
+html.fly2-native-app .fly2-calendar-head strong{font-size:16px!important;color:#173a35!important;text-transform:capitalize!important}
+html.fly2-native-app .fly2-calendar-head button{width:40px!important;height:40px!important;border-radius:13px!important;background:#eef5f2!important;color:#0d665f!important}
+html.fly2-native-app .fly2-calendar-weekdays{font-size:9px!important;color:#71807c!important}
+html.fly2-native-app .fly2-calendar-days button{min-height:40px!important;border-radius:12px!important;font-size:12px!important;font-weight:800!important}
+html.fly2-native-app .fly2-calendar-days button.selected{background:#0d665f!important;color:#fff!important}
+html.fly2-native-app .fly2-calendar-days button.today:not(.selected){box-shadow:inset 0 0 0 2px #0d665f!important;color:#0d665f!important}
+html.fly2-native-app .fly2-calendar-foot{margin-top:10px!important;padding-top:10px!important}
+html.fly2-native-app .fly2-calendar-foot button{min-height:42px!important;border-radius:13px!important;font-weight:850!important}
 html.fly2-native-app .results{padding:8px 10px 18px!important;scroll-margin-top:6px!important}
 html.fly2-native-app .results-heading{margin-top:4px!important}
 html.fly2-native-app .flight-card{border-radius:18px!important}
