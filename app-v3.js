@@ -2,6 +2,11 @@
   const core = document.createElement('script');
   core.src = './app-v3-core.js';
   core.onload = () => {
+    const globalAirports = document.createElement('script');
+    globalAirports.src = './app-global-airports.js?v=20260825-1';
+    globalAirports.onerror = () => console.error('Impossibile caricare l’indice aeroporti globale di Fly2.');
+    document.head.appendChild(globalAirports);
+
     const liveStyle = document.createElement('link');
     liveStyle.rel = 'stylesheet';
     liveStyle.href = './styles-live.css';
