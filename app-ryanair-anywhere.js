@@ -27,7 +27,7 @@
         const serial = ++runSerial;
         response.clone().json().then(data => {
           if (!data?.ok || !data?.result) return;
-          window.setTimeout(() => supplementRyanairAnywhere(request, serial).catch(() => hideStatus()), 120);
+          window.setTimeout(() => supplementAnywhere(request, serial).catch(() => hideStatus()), 120);
         }).catch(() => {});
       }
     }
@@ -40,14 +40,87 @@
     return String(request.destination || '').trim().toLowerCase() === 'anywhere';
   }
 
-  async function supplementRyanairAnywhere(request, serial) {
+  async function supplementAnywhere(request, serial) {
     const origins = selectedOrigins(request);
     if (!origins.length || serial !== runSerial) return;
 
+    updateAnywhereTitle(origins);
     showStatus(origins.length > 1
-      ? `Controllo anche Ryanair da ${origins.length} aeroporti…`
+      ? `Controllo Kiwi e Ryanair da ${origins.length} aeroporti…`
       : 'Controllo anche Ryanair per Ovunque…');
 
+    const kiwiPromise = supplementAdditionalKiwiOrigins(request, origins, serial);
+    const ryanairPromise = supplementRyanairAnywhere(request, origins, serial);
+    const [kiwiAdded, ryanairAdded] = await Promise.all([kiwiPromise, ryanairPromise]);
+    if (serial !== runSerial) return;
+
+    updateAnywhereTitle(origins);
+    if (kiwiAdded || ryanairAdded) {
+      const parts = [];
+      if (ryanairAdded) parts.push(`Ryanair ${ryanairAdded}`);
+      if (kiwiAdded) parts.push(`Kiwi +${kiwiAdded} dalle altre partenze`);
+      showStatus(`✓ ${parts.join(' · ')}`);
+      window.setTimeout(hideStatus, 3800);
+    } else {
+      showStatus('Tutte le partenze controllate · nessun itinerario aggiuntivo');
+      window.setTimeout(hideStatus, 3500);
+    }
+  }
+
+  async function supplementAdditionalKiwiOrigins(request, origins, serial) {
+    if (origins.length <= 1) return 0;
+    const primary = String(request.originIata || request.origin || '').trim().toUpperCase();
+    const extraOrigins = origins.filter((code, index) => code !== primary && (primary || index > 0));
+    if (!extraOrigins.length) return 0;
+
+    let cursor = 0;
+    let added = 0;
+    let completed = 0;
+
+    const worker = async () => {
+      while (serial === runSerial) {
+        const index = cursor++;
+        if (index >= extraOrigins.length) return;
+        const origin = extraOrigins[index];
+        const payload = {
+          ...request,
+          origin,
+          originType: 'airport',
+          originIata: origin
+        };
+        try {
+          const response = await nativeFetch(KIWI_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json().catch(() => null);
+          const items = data?.ok && Array.isArray(data?.result?.itineraries)
+            ? data.result.itineraries.map(item => ({
+                ...item,
+                source: item?.source || 'Kiwi',
+                kiwiBookingUrl: item?.kiwiBookingUrl || item?.bookingUrl || null
+              }))
+            : [];
+          if (items.length && serial === runSerial) {
+            added += items.length;
+            window.fly2LiveResultsApi?.mergeExternalResults?.(items);
+          }
+        } catch (_) {
+        } finally {
+          completed += 1;
+          if (serial === runSerial) {
+            showStatus(`Ovunque · ${completed + 1}/${origins.length} partenze Kiwi controllate · Ryanair in verifica`);
+          }
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(2, extraOrigins.length) }, () => worker()));
+    return added;
+  }
+
+  async function supplementRyanairAnywhere(request, origins, serial) {
     let cursor = 0;
     let added = 0;
     let completed = 0;
@@ -85,15 +158,7 @@
     };
 
     await Promise.all(Array.from({ length: Math.min(2, origins.length) }, () => worker()));
-    if (serial !== runSerial) return;
-
-    if (added) {
-      showStatus(`✓ Ryanair aggiunto · ${added} itinerari trovati`);
-      window.setTimeout(hideStatus, 3500);
-    } else {
-      showStatus('Ryanair controllato · nessun itinerario aggiuntivo con questi filtri');
-      window.setTimeout(hideStatus, 3500);
-    }
+    return added;
   }
 
   function selectedOrigins(request) {
@@ -107,6 +172,20 @@
     if (/^[A-Z]{3}$/.test(primary)) return [primary];
     const fallback = String(request.origin || '').trim().toUpperCase();
     return /^[A-Z]{3}$/.test(fallback) ? [fallback] : [];
+  }
+
+  function updateAnywhereTitle(origins) {
+    if (origins.length <= 1) return;
+    const title = $('#resultTitle');
+    if (!title) return;
+    const selected = window.fly2MultiAirport?.getOrigins?.() || [];
+    const labels = origins.map(code => {
+      const item = selected.find(entry => String(entry?.iata || '').trim().toUpperCase() === code);
+      const raw = String(item?.label || code).trim();
+      return raw.split(',')[0].replace(/\s*·\s*[A-Z]{3}\s*$/i, '').trim() || code;
+    });
+    const left = labels.length === 2 ? labels.join(' + ') : `${labels[0]} +${labels.length - 1}`;
+    title.textContent = `${left} → Ovunque`;
   }
 
   function buildRyanairRequest(request, origin) {
